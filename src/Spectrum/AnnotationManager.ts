@@ -33,11 +33,7 @@ export class AnnotationManager {
   private cachedBlocks: Block[] = [];
   private cachedWriteRow = -1;
 
-  constructor(
-    annBuf: RingBuffer,
-    rowCount: number,
-    binCount: number,
-  ) {
+  constructor(annBuf: RingBuffer, rowCount: number, binCount: number) {
     this.annBuf = annBuf;
     this.rowCount = rowCount;
     this.binCount = binCount;
@@ -57,7 +53,10 @@ export class AnnotationManager {
       const offset = uploadRow * binCount;
       let active = false;
       for (let b = 0; b < binCount; b++) {
-        if (annBuf.data[offset + b] !== POWER_NO_READING) { active = true; break; }
+        if (annBuf.data[offset + b] !== POWER_NO_READING) {
+          active = true;
+          break;
+        }
       }
       this.rowActivity[uploadRow] = active ? 1 : 0;
     });
@@ -96,6 +95,142 @@ export class AnnotationManager {
     this.visible = v;
   }
 
+  // Full scan: iterate all rowCount rows newest→oldest, merge contiguous same-extent groups.
+  // Used for initialization and when more than one row was written since last render.
+  private computeBlocksFull(writeRow: number): Block[] {
+    const { rowCount } = this;
+    type OpenBlock = Block & { curRowIdx: number };
+    const blocks: Block[] = [];
+    let open: OpenBlock[] = [];
+
+    for (let di = 0; di < rowCount; di++) {
+      const rowIdx = (writeRow - 1 - di + rowCount * 2) % rowCount;
+      const groups = this.rowActivity[rowIdx] ? this.collectGroups(rowIdx) : [];
+
+      const nextOpen: OpenBlock[] = [];
+      for (const ob of open) {
+        if (
+          groups.some(
+            (g) => g.startBin === ob.startBin && g.endBin === ob.endBin,
+          )
+        ) {
+          nextOpen.push({ ...ob, curRowIdx: rowIdx });
+        } else {
+          blocks.push({
+            startBin: ob.startBin,
+            endBin: ob.endBin,
+            topRowIdx: ob.topRowIdx,
+            botRowIdx: ob.curRowIdx,
+          });
+        }
+      }
+      for (const g of groups) {
+        if (
+          !nextOpen.some(
+            (ob) => ob.startBin === g.startBin && ob.endBin === g.endBin,
+          )
+        ) {
+          nextOpen.push({
+            startBin: g.startBin,
+            endBin: g.endBin,
+            topRowIdx: rowIdx,
+            botRowIdx: rowIdx,
+            curRowIdx: rowIdx,
+          });
+        }
+      }
+      open = nextOpen;
+    }
+
+    for (const ob of open) {
+      blocks.push({
+        startBin: ob.startBin,
+        endBin: ob.endBin,
+        topRowIdx: ob.topRowIdx,
+        botRowIdx: ob.curRowIdx,
+      });
+    }
+
+    return blocks;
+  }
+
+  // Incremental update: extend/trim/create blocks for the single newly-written row.
+  //
+  // When writeRow advances by 1 (W→W+1):
+  //   newRowIdx = W % rowCount  ← the row just written AND the slot that just expired as oldest.
+  //
+  // For each cached block:
+  //   • matched by new row's groups + botRowIdx==newRowIdx → full-ring: slide both ends forward.
+  //   • matched only                                       → extend topRowIdx to new row.
+  //   • botRowIdx==newRowIdx only                          → trim bottom to new oldest; drop if 1-row.
+  //   • neither                                            → unchanged.
+  //
+  // Unmatched new-row groups become fresh 1-row blocks.
+  private computeBlocksIncremental(writeRow: number): Block[] {
+    const { rowCount } = this;
+    const newRowIdx = (writeRow - 1 + rowCount) % rowCount;
+    const prevRowIdx = (newRowIdx - 1 + rowCount) % rowCount;
+    const newGroups = this.rowActivity[newRowIdx]
+      ? this.collectGroups(newRowIdx)
+      : [];
+    const matchedGroupIdx = new Set<number>();
+    const blocks: Block[] = [];
+
+    for (const block of this.cachedBlocks) {
+      // A block is "open" only if its top is the immediately preceding newest row.
+      // Extending a closed block (gap in signal) would merge separate appearances into one.
+      const isOpen = block.topRowIdx === prevRowIdx;
+      const gi = isOpen
+        ? newGroups.findIndex(
+            (g) => g.startBin === block.startBin && g.endBin === block.endBin,
+          )
+        : -1;
+      const matched = gi !== -1;
+      if (matched) matchedGroupIdx.add(gi);
+
+      if (block.botRowIdx === newRowIdx) {
+        if (matched) {
+          // Open + matched + bottom expiring = full-ring: slide both ends forward.
+          blocks.push({
+            ...block,
+            topRowIdx: newRowIdx,
+            botRowIdx: (newRowIdx + 1) % rowCount,
+          });
+        } else if (block.topRowIdx !== newRowIdx) {
+          // Trim expired bottom row. If topRowIdx==newRowIdx it's a 1-row block at the expiring slot → drop.
+          blocks.push({ ...block, botRowIdx: (newRowIdx + 1) % rowCount });
+        }
+      } else {
+        blocks.push(matched ? { ...block, topRowIdx: newRowIdx } : block);
+      }
+    }
+
+    for (let i = 0; i < newGroups.length; i++) {
+      if (!matchedGroupIdx.has(i)) {
+        const g = newGroups[i];
+        blocks.push({
+          startBin: g.startBin,
+          endBin: g.endBin,
+          topRowIdx: newRowIdx,
+          botRowIdx: newRowIdx,
+        });
+      }
+    }
+
+    return blocks;
+  }
+
+  // Recompute block topology only when a new row has been written.
+  // Between writes (e.g. zoom/pan renders) the ring-buffer contents are
+  // unchanged so the cached result is still valid.
+  private computeBlocks(writeRow: number): Block[] {
+    const { rowCount } = this;
+    const delta = (writeRow - this.cachedWriteRow + rowCount * 2) % rowCount;
+    return delta === 1
+      ? this.computeBlocksIncremental(writeRow)
+      : this.computeBlocksFull(writeRow);
+  }
+
   render = () => {
     const { canvas, ctx, viewport, rowCount, binCount } = this;
     if (!canvas) return;
@@ -122,57 +257,11 @@ export class AnnotationManager {
     const rowBotY = (i: number) => clipToScreenY(-1 + i * rowH + uT);
 
     const { start, end } = viewport;
-    const binToX = (bin: number) => ((bin / binCount - start) / (end - start)) * width;
+    const binToX = (bin: number) =>
+      ((bin / binCount - start) / (end - start)) * width;
 
-    // Recompute block topology only when a new row has been written.
-    // Between writes (e.g. zoom/pan renders) the ring-buffer contents are
-    // unchanged so the cached result is still valid.
     if (writeRow !== this.cachedWriteRow) {
-      type OpenBlock = Block & { curRowIdx: number };
-      const completedBlocks: Block[] = [];
-      let open: OpenBlock[] = [];
-
-      for (let di = 0; di < rowCount; di++) {
-        const rowIdx = (writeRow - 1 - di + rowCount * 2) % rowCount;
-        const groups = this.rowActivity[rowIdx] ? this.collectGroups(rowIdx) : [];
-
-        const nextOpen: OpenBlock[] = [];
-        for (const ob of open) {
-          if (groups.some((g) => g.startBin === ob.startBin && g.endBin === ob.endBin)) {
-            nextOpen.push({ ...ob, curRowIdx: rowIdx });
-          } else {
-            completedBlocks.push({
-              startBin: ob.startBin,
-              endBin: ob.endBin,
-              topRowIdx: ob.topRowIdx,
-              botRowIdx: ob.curRowIdx,
-            });
-          }
-        }
-        for (const g of groups) {
-          if (!nextOpen.some((ob) => ob.startBin === g.startBin && ob.endBin === g.endBin)) {
-            nextOpen.push({
-              startBin: g.startBin,
-              endBin: g.endBin,
-              topRowIdx: rowIdx,
-              botRowIdx: rowIdx,
-              curRowIdx: rowIdx,
-            });
-          }
-        }
-        open = nextOpen;
-      }
-
-      for (const ob of open) {
-        completedBlocks.push({
-          startBin: ob.startBin,
-          endBin: ob.endBin,
-          topRowIdx: ob.topRowIdx,
-          botRowIdx: ob.curRowIdx,
-        });
-      }
-
-      this.cachedBlocks = completedBlocks;
+      this.cachedBlocks = this.computeBlocks(writeRow);
       this.cachedWriteRow = writeRow;
     }
 
@@ -186,15 +275,24 @@ export class AnnotationManager {
       block: Block,
       fn: (xL: number, xR: number, yTop: number, yBot: number) => void,
     ) => {
-      const yTopF = rowTopY(block.topRowIdx);
-      const yBotF = rowBotY(block.botRowIdx);
       const xL = binToX(block.startBin);
       const xR = binToX(block.endBin);
 
+      // Full-ring block: topRowIdx (newest) and botRowIdx (oldest) are ring-adjacent,
+      // so both rowTopY(topRowIdx) and rowBotY(botRowIdx) land at the same seam Y ≈ 0.
+      // The two-copy guard would filter both copies out, making the block invisible.
+      if ((block.topRowIdx + 1) % rowCount === block.botRowIdx) {
+        fn(xL, xR, 0, height);
+        return;
+      }
+
+      const yTopF = rowTopY(block.topRowIdx);
+      const yBotF = rowBotY(block.botRowIdx);
+
       if (yBotF >= yTopF) {
         for (const yOffset of [0, height]) {
-          if (yOffset === height && yTopF >= 0) continue;
-          if (yOffset === 0 && yBotF <= 0) continue;
+          if (yOffset === height && yTopF > -1) continue;
+          if (yOffset === 0 && yBotF < 1) continue;
           const yTop = yTopF + yOffset;
           const yBot = yBotF + yOffset;
           if (yTop > height + 2 || yBot < -2) continue;
@@ -231,7 +329,12 @@ export class AnnotationManager {
     // Solid corner marks: L-shapes at all four corners, same double-stroke.
     // Corner arm length is clamped to half the block dimensions so they stay
     // proportional when the block is small (zoomed out).
-    const cornerPaths = (xL: number, xR: number, yTop: number, yBot: number) => {
+    const cornerPaths = (
+      xL: number,
+      xR: number,
+      yTop: number,
+      yBot: number,
+    ) => {
       const C = Math.min(CORNER_SIZE, (xR - xL) / 2, (yBot - yTop) / 2);
       ctx.beginPath();
       ctx.moveTo(xL + C, yTop);

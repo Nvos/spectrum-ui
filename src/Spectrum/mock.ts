@@ -96,6 +96,7 @@ type Signal = {
   peakDbm: number; // peak power when transmitting
   active: boolean;
   ticksLeft: number;
+  continuous?: boolean; // always-on, never deactivated
 };
 
 const SIGNALS: Signal[] = [
@@ -119,6 +120,9 @@ const SIGNALS: Signal[] = [
   { bin: 1700, halfBw: 1, peakDbm: -81, active: false, ticksLeft: 0 },
   { bin: 1820, halfBw: 3, peakDbm: -69, active: false, ticksLeft: 0 },
   { bin: 1940, halfBw: 1, peakDbm: -77, active: false, ticksLeft: 0 },
+  // Continuous beacons — always active, used to exercise full-ring block rendering.
+  { bin: 250,  halfBw: 1, peakDbm: -72, active: true, ticksLeft: 0, continuous: true },
+  { bin: 1750, halfBw: 1, peakDbm: -75, active: true, ticksLeft: 0, continuous: true },
 ];
 
 // ~2% chance per tick to start a burst; exponential burst length (~1.5 s mean)
@@ -143,6 +147,7 @@ export const generateAnnotationRow = (out: Int8Array, binCount: number): boolean
 export const generateRow = (out: Int8Array, binCount: number) => {
   // Advance burst state machines
   for (const sig of SIGNALS) {
+    if (sig.continuous) continue;
     if (sig.active) {
       if (--sig.ticksLeft <= 0) sig.active = false;
     } else if (Math.random() < ACTIVATE_PROB) {
