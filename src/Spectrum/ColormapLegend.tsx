@@ -1,9 +1,10 @@
+import { useAtomValue, useSetAtom } from "jotai";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import * as styles from "./ColormapLegend.css";
 import { COLORMAPS } from "./colormaps";
 import { POWER_CEILING, POWER_FLOOR } from "./constants";
 import { computePowerTicks } from "./powerAxisUtils";
-import { useSpectrumDisplay } from "./SpectrumContext";
+import { colorMapAtom, displayMaxAtom, displayMinAtom } from "./store";
 
 const TOTAL_RANGE = POWER_CEILING - POWER_FLOOR;
 
@@ -216,17 +217,21 @@ const DisplayMinHandle = ({ pct, displayMin, onMouseDown }: MinHandleProps) => {
 }
 
 export const ColormapLegend = () => {
-  const { colorMap, displayMin, displayMax, onDisplayMinChange, onDisplayMaxChange } =
-    useSpectrumDisplay();
+  const colorMap = useAtomValue(colorMapAtom);
+  const displayMin = useAtomValue(displayMinAtom);
+  const displayMax = useAtomValue(displayMaxAtom);
+  const setDisplayMin = useSetAtom(displayMinAtom);
+  const setDisplayMax = useSetAtom(displayMaxAtom);
+
   const containerRef = useRef<HTMLDivElement>(null);
-  const onMaxMouseDown = useDisplayMaxDrag(containerRef, displayMin, onDisplayMaxChange);
-  const onMinMouseDown = useDisplayMinDrag(containerRef, displayMax, onDisplayMinChange);
+  const onMaxMouseDown = useDisplayMaxDrag(containerRef, displayMin, setDisplayMax);
+  const onMinMouseDown = useDisplayMinDrag(containerRef, displayMax, setDisplayMin);
   const onGradientMouseDown = useGradientDrag(
     containerRef,
     displayMin,
     displayMax,
-    onDisplayMinChange,
-    onDisplayMaxChange,
+    setDisplayMin,
+    setDisplayMax,
   );
 
   const gradient = useMemo(() => buildCSSGradient(colorMap), [colorMap]);

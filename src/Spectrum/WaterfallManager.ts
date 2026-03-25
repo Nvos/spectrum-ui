@@ -9,8 +9,9 @@ import {
   setBuffersAndAttributes,
   setUniforms,
 } from "twgl.js";
-import { buildLUT, COLORMAPS, ColorMap, LUT_SIZE } from "./colormaps";
+import { buildLUT, COLORMAPS, LUT_SIZE } from "./colormaps";
 import { RingBuffer } from "./RingBuffer";
+import { colorMapAtom, displayMaxAtom, displayMinAtom, type SpectrumStore } from "./store";
 import { Viewport } from "./Viewport";
 
 // Each row is a quad positioned in clip space.
@@ -133,20 +134,30 @@ export class WaterfallManager {
   private powerMin: number;
   private displayMax: number;
   private currentLUT: Uint8Array;
+  private unsubscribes: Array<() => void>;
 
   constructor(
     rowCount: number,
     binCount: number,
     buffer: RingBuffer,
-    powerMin: number,
-    initialDisplayMax: number,
+    store: SpectrumStore,
   ) {
     this.rowCount = rowCount;
     this.binCount = binCount;
     this.ringBuffer = buffer;
-    this.powerMin = powerMin;
-    this.displayMax = initialDisplayMax;
-    this.currentLUT = buildLUT(COLORMAPS[ColorMap.SDR]);
+    this.powerMin = store.get(displayMinAtom);
+    this.displayMax = store.get(displayMaxAtom);
+    this.currentLUT = buildLUT(COLORMAPS[store.get(colorMapAtom)]);
+
+    this.unsubscribes = [
+      store.sub(displayMinAtom, () => this.updateDisplayMin(store.get(displayMinAtom))),
+      store.sub(displayMaxAtom, () => this.updateDisplayMax(store.get(displayMaxAtom))),
+      store.sub(colorMapAtom, () => this.updateColormap(buildLUT(COLORMAPS[store.get(colorMapAtom)]))),
+    ];
+  }
+
+  destroy() {
+    for (const unsub of this.unsubscribes) unsub();
   }
 
   mount(canvas: HTMLCanvasElement, viewport: Viewport) {

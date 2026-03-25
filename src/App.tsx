@@ -1,9 +1,19 @@
+import { useAtomValue, useSetAtom } from "jotai";
+import { Provider } from "jotai";
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as styles from "./App.css";
-import { ColorMap, COLORMAP_NAMES, FrameBuffer, POWER_CEILING, POWER_FLOOR, Spectrum } from "./Spectrum";
+import { COLORMAP_NAMES, FrameBuffer, POWER_CEILING, POWER_FLOOR, Spectrum } from "./Spectrum";
 import type { SpectrumHandle, SpectrumInitialData } from "./Spectrum";
 import { generateHydrationPayload, generateLiveFrame, MOCK_BIN_COUNT, TICK_MS } from "./Spectrum/mock";
 import type { HydrationPayload } from "./Spectrum/mock";
+import {
+  avgTauAtom,
+  colorMapAtom,
+  createSpectrumStore,
+  layerVisibilityAtom,
+  occupancyThresholdAtom,
+} from "./Spectrum/store";
+import type { LayerName, SpectrumStore } from "./Spectrum/store";
 
 const DEFAULT_BINS = 2000;
 const DEFAULT_ROWS = 300;
@@ -36,9 +46,11 @@ const decodeHydration = (payload: HydrationPayload): SpectrumInitialData => {
   };
 }
 
-const LAYERS: { id: string; label: string; color: string }[] = [
+const LAYERS: { id: LayerName; label: string; color: string }[] = [
+  { id: "live", label: "Live", color: "#4ade80" },
   { id: "avg", label: "Average", color: "#fabe28" },
   { id: "max", label: "Max Hold", color: "#ff5050" },
+  { id: "annotations", label: "Annotations", color: "#ff00c8" },
 ];
 
 const AVG_TAU_STEPS = [500, 1000, 2000, 5000, 10_000];
@@ -79,7 +91,8 @@ const useMockInterval = (frameBuffer: FrameBuffer) => {
   }, [processFrame]);
 }
 
-const App = () => {
+// Inner component — lives inside <Provider store={store}> so atom hooks work.
+const AppInner = ({ store }: { store: SpectrumStore }) => {
   const [initialData, setInitialData] = useState<SpectrumInitialData>(() =>
     decodeHydration(generateHydrationPayload()),
   );
@@ -96,18 +109,16 @@ const App = () => {
   };
 
   const spectrumRef = useRef<SpectrumHandle>(null);
-  const [displayMax, setDisplayMax] = useState(-62);
-  const [displayMin, setDisplayMin] = useState(-92);
-  const [colorMap, setColorMap] = useState<number>(ColorMap.SDR);
-  const [layerVisibility, setLayerVisibility] = useState<Record<string, boolean>>({
-    avg: true,
-    max: true,
-  });
-  const handleLayerToggle = (id: string, visible: boolean) =>
+  const colorMap = useAtomValue(colorMapAtom);
+  const setColorMap = useSetAtom(colorMapAtom);
+  const layerVisibility = useAtomValue(layerVisibilityAtom);
+  const setLayerVisibility = useSetAtom(layerVisibilityAtom);
+  const avgTau = useAtomValue(avgTauAtom);
+  const setAvgTau = useSetAtom(avgTauAtom);
+  const occupancyThreshold = useAtomValue(occupancyThresholdAtom);
+  const setOccupancyThreshold = useSetAtom(occupancyThresholdAtom);
+  const handleLayerToggle = (id: LayerName, visible: boolean) =>
     setLayerVisibility((prev) => ({ ...prev, [id]: visible }));
-  const [avgTau, setAvgTau] = useState(2000);
-  const [occupancyThreshold, setOccupancyThreshold] = useState(-82);
-  const [annotationsVisible, setAnnotationsVisible] = useState(true);
 
   return (
     <div className={styles.root}>
@@ -166,12 +177,6 @@ const App = () => {
           Reset Occ
         </button>
         <div className={styles.separator} />
-        <button
-          onClick={() => setAnnotationsVisible((v) => !v)}
-          className={annotationsVisible ? styles.button.active : styles.button.inactive}
-        >
-          Annotations
-        </button>
         <div className={styles.separator} />
         <button onClick={handleRehydrate} className={styles.button.inactive}>
           Re-hydrate
@@ -193,24 +198,28 @@ const App = () => {
         <Spectrum
           key={hydrationKey}
           ref={spectrumRef}
-          colorMap={colorMap}
-          displayMin={displayMin}
-          onDisplayMinChange={setDisplayMin}
-          displayMax={displayMax}
-          freqStart={20_000}
-          resolution={200}
+          store={store}
           frameBuffer={frameBuffer}
           initialData={initialData}
+          freqStart={20_000}
+          resolution={200}
           binCount={DEFAULT_BINS}
           rowCount={DEFAULT_ROWS}
-          layerVisibility={layerVisibility}
-          avgTau={avgTau}
-          occupancyThreshold={occupancyThreshold}
-          annotationsVisible={annotationsVisible}
-          onDisplayMaxChange={setDisplayMax}
         />
       </div>
     </div>
+  );
+}
+
+const App = () => {
+  const storeRef = useRef<SpectrumStore | null>(null);
+  if (!storeRef.current) storeRef.current = createSpectrumStore();
+  const store = storeRef.current;
+
+  return (
+    <Provider store={store}>
+      <AppInner store={store} />
+    </Provider>
   );
 }
 

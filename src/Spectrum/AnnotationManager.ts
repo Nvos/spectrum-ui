@@ -1,7 +1,9 @@
 import { resizeCanvasToDisplaySize } from "twgl.js";
 import { POWER_NO_READING } from "./constants";
 import type { RingBuffer } from "./RingBuffer";
+import { layerVisibilityAtom, type SpectrumStore } from "./store";
 import type { Viewport } from "./Viewport";
+
 // Hot magenta — never appears in SDR heat-map colormaps (black→blue→cyan→green→yellow→red)
 const BORDER_OUTLINE_COLOR = "rgba(0, 0, 0, 0.75)";
 const BORDER_OUTLINE_WIDTH = 4;
@@ -29,11 +31,12 @@ export class AnnotationManager {
   private binCount: number;
   readonly rowActivity: Uint8Array;
   private visible = true;
-  private unsubscribe: () => void;
+  private unsubscribeBuffer: () => void;
+  private unsubscribeStore: () => void;
   private cachedBlocks: Block[] = [];
   private cachedWriteRow = -1;
 
-  constructor(annBuf: RingBuffer, rowCount: number, binCount: number) {
+  constructor(annBuf: RingBuffer, rowCount: number, binCount: number, store: SpectrumStore) {
     this.annBuf = annBuf;
     this.rowCount = rowCount;
     this.binCount = binCount;
@@ -49,7 +52,7 @@ export class AnnotationManager {
       }
     }
 
-    this.unsubscribe = annBuf.subscribe((uploadRow) => {
+    this.unsubscribeBuffer = annBuf.subscribe((uploadRow) => {
       const offset = uploadRow * binCount;
       let active = false;
       for (let b = 0; b < binCount; b++) {
@@ -60,10 +63,17 @@ export class AnnotationManager {
       }
       this.rowActivity[uploadRow] = active ? 1 : 0;
     });
+
+    this.visible = store.get(layerVisibilityAtom).annotations;
+    this.unsubscribeStore = store.sub(layerVisibilityAtom, () => {
+      this.setVisible(store.get(layerVisibilityAtom).annotations);
+      this.render();
+    });
   }
 
   destroy() {
-    this.unsubscribe();
+    this.unsubscribeBuffer();
+    this.unsubscribeStore();
   }
 
   mount(canvas: HTMLCanvasElement, viewport: Viewport) {

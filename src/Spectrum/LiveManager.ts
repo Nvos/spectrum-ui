@@ -3,6 +3,13 @@ import { computePowerTicks } from "./powerAxisUtils";
 import { POWER_NO_READING } from "./constants";
 import type { RingBuffer } from "./RingBuffer";
 import type { Viewport } from "./Viewport";
+import {
+  displayMaxAtom,
+  displayMinAtom,
+  layerVisibilityAtom,
+  type SpectrumStore,
+} from "./store";
+
 const ANN_OUTLINE_COLOR = "rgba(0, 0, 0, 0.75)";
 const ANN_OUTLINE_WIDTH = 4;
 const ANN_COLOR = "rgba(255, 0, 200, 0.95)";
@@ -14,7 +21,6 @@ type AnnotationSource = {
   rowActivity: Uint8Array;
   rowCount: number;
 };
-
 
 type LayerConfig = {
   data: Int8Array | Float32Array;
@@ -33,13 +39,39 @@ export class LiveManager {
   private displayMax: number;
   private layers = new Map<string, LayerConfig>();
   private annotation: AnnotationSource | null = null;
-  private annotationVisible = true;
+  private liveVisible: boolean;
+  private annotationVisible: boolean;
+  private unsubscribes: Array<() => void>;
 
-  constructor(binCount: number, buffer: RingBuffer, powerMin: number, initialDisplayMax: number) {
+  constructor(binCount: number, buffer: RingBuffer, store: SpectrumStore) {
     this.binCount = binCount;
     this.ringBuffer = buffer;
-    this.powerMin = powerMin;
-    this.displayMax = initialDisplayMax;
+    this.powerMin = store.get(displayMinAtom);
+    this.displayMax = store.get(displayMaxAtom);
+    const vis = store.get(layerVisibilityAtom);
+    this.liveVisible = vis.live;
+    this.annotationVisible = vis.annotations;
+
+    this.unsubscribes = [
+      store.sub(displayMinAtom, () =>
+        this.updateDisplayMin(store.get(displayMinAtom)),
+      ),
+      store.sub(displayMaxAtom, () =>
+        this.updateDisplayMax(store.get(displayMaxAtom)),
+      ),
+      store.sub(layerVisibilityAtom, () => {
+        const v = store.get(layerVisibilityAtom);
+        this.liveVisible = v.live;
+        this.annotationVisible = v.annotations;
+        for (const [id, visible] of Object.entries(v))
+          this.setLayerVisible(id, visible);
+        this.render();
+      }),
+    ];
+  }
+
+  destroy() {
+    for (const unsub of this.unsubscribes) unsub();
   }
 
   mount(canvas: HTMLCanvasElement, viewport: Viewport) {
@@ -52,7 +84,15 @@ export class LiveManager {
 
   // oxlint-disable-next-line max-lines-per-function
   render = () => {
-    const { canvas, ctx, viewport, ringBuffer, binCount, powerMin, displayMax } = this;
+    const {
+      canvas,
+      ctx,
+      viewport,
+      ringBuffer,
+      binCount,
+      powerMin,
+      displayMax,
+    } = this;
 
     if (!canvas) {
       console.warn("Canvas not mounted");
@@ -80,19 +120,24 @@ export class LiveManager {
     const { start, end } = viewport;
     const visibleSpan = end - start;
 
-    const row = (ringBuffer.writeRow - 1 + ringBuffer.rowCount) % ringBuffer.rowCount;
+    const row =
+      (ringBuffer.writeRow - 1 + ringBuffer.rowCount) % ringBuffer.rowCount;
     const rowOffset = row * binCount;
     const data = ringBuffer.data;
 
     const binStart = Math.floor(start * binCount);
     const binEnd = Math.ceil(end * binCount);
 
-    const sampleX = (b: number) => ((b / binCount - start) / visibleSpan) * width;
+    const sampleX = (b: number) =>
+      ((b / binCount - start) / visibleSpan) * width;
     const sampleY = (b: number) => {
       const bin = Math.max(0, Math.min(binCount - 1, b));
       // Int8 value is dBm directly
       const dbm = data[rowOffset + bin];
-      const t = Math.min(1, Math.max(0, (dbm - powerMin) / (displayMax - powerMin)));
+      const t = Math.min(
+        1,
+        Math.max(0, (dbm - powerMin) / (displayMax - powerMin)),
+      );
       return (1 - t) * height;
     };
 
@@ -103,37 +148,44 @@ export class LiveManager {
       const layerSampleY = (b: number) => {
         const bin = Math.max(0, Math.min(binCount - 1, b));
         const dbm = layerData[bin];
-        const t = Math.min(1, Math.max(0, (dbm - powerMin) / (displayMax - powerMin)));
+        const t = Math.min(
+          1,
+          Math.max(0, (dbm - powerMin) / (displayMax - powerMin)),
+        );
         return (1 - t) * height;
       };
       ctx.beginPath();
       ctx.moveTo(sampleX(binStart), height);
-      for (let b = binStart; b <= binEnd; b++) ctx.lineTo(sampleX(b), layerSampleY(b));
+      for (let b = binStart; b <= binEnd; b++)
+        ctx.lineTo(sampleX(b), layerSampleY(b));
       ctx.lineTo(sampleX(binEnd), height);
       ctx.closePath();
       ctx.fillStyle = layer.color;
       ctx.fill();
     }
 
-    // Fill pass — closed polygon from bottom-left → spectrum → bottom-right
-    ctx.beginPath();
-    ctx.moveTo(sampleX(binStart), height);
-    for (let b = binStart; b <= binEnd; b++) ctx.lineTo(sampleX(b), sampleY(b));
-    ctx.lineTo(sampleX(binEnd), height);
-    ctx.closePath();
-    ctx.fillStyle = "rgba(74, 222, 128, 0.20)";
-    ctx.fill();
+    if (this.liveVisible) {
+      // Fill pass — closed polygon from bottom-left → spectrum → bottom-right
+      ctx.beginPath();
+      ctx.moveTo(sampleX(binStart), height);
+      for (let b = binStart; b <= binEnd; b++)
+        ctx.lineTo(sampleX(b), sampleY(b));
+      ctx.lineTo(sampleX(binEnd), height);
+      ctx.closePath();
+      ctx.fillStyle = "rgba(74, 222, 128, 0.20)";
+      ctx.fill();
 
-    // Stroke pass — top edge only
-    ctx.beginPath();
-    ctx.strokeStyle = "rgba(74, 222, 128, 0.9)";
-    ctx.lineWidth = 1.5;
-    ctx.lineJoin = "round";
-    for (let b = binStart; b <= binEnd; b++) {
-      if (b === binStart) ctx.moveTo(sampleX(b), sampleY(b));
-      else ctx.lineTo(sampleX(b), sampleY(b));
+      // Stroke pass — top edge only
+      ctx.beginPath();
+      ctx.strokeStyle = "rgba(74, 222, 128, 0.9)";
+      ctx.lineWidth = 1.5;
+      ctx.lineJoin = "round";
+      for (let b = binStart; b <= binEnd; b++) {
+        if (b === binStart) ctx.moveTo(sampleX(b), sampleY(b));
+        else ctx.lineTo(sampleX(b), sampleY(b));
+      }
+      ctx.stroke();
     }
-    ctx.stroke();
 
     // --- Overlay line layers (e.g. avg) — drawn after live fill ---
     for (const layer of this.layers.values()) {
@@ -142,7 +194,10 @@ export class LiveManager {
       const layerSampleY = (b: number) => {
         const bin = Math.max(0, Math.min(binCount - 1, b));
         const dbm = layerData[bin];
-        const t = Math.min(1, Math.max(0, (dbm - powerMin) / (displayMax - powerMin)));
+        const t = Math.min(
+          1,
+          Math.max(0, (dbm - powerMin) / (displayMax - powerMin)),
+        );
         return (1 - t) * height;
       };
       ctx.beginPath();
@@ -174,7 +229,8 @@ export class LiveManager {
         const groups: { startBin: number; endBin: number }[] = [];
         let gs = -1;
         for (let b = 0; b <= binCount; b++) {
-          const active = b < binCount && annData[annOffset + b] !== POWER_NO_READING;
+          const active =
+            b < binCount && annData[annOffset + b] !== POWER_NO_READING;
           if (active && gs === -1) gs = b;
           else if (!active && gs !== -1) {
             groups.push({ startBin: gs, endBin: b });
@@ -205,11 +261,7 @@ export class LiveManager {
     }
   };
 
-  setAnnotation(
-    annBuf: RingBuffer,
-    rowActivity: Uint8Array,
-    rowCount: number,
-  ) {
+  setAnnotation(annBuf: RingBuffer, rowActivity: Uint8Array, rowCount: number) {
     this.annotation = { annBuf, rowActivity, rowCount };
   }
 

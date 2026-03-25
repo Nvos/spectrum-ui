@@ -1,7 +1,8 @@
+import { useAtomValue } from "jotai";
 import type { RefObject } from "react";
 import { ColormapLegend } from "./ColormapLegend";
 import { PowerAxis } from "./PowerAxis";
-import { useSpectrumDisplay } from "./SpectrumContext";
+import { displayMaxAtom, displayMinAtom } from "./store";
 import * as styles from "./SpectrumRows.css";
 
 type LiveRowProps = {
@@ -11,7 +12,8 @@ type LiveRowProps = {
 };
 
 export const LiveRow = ({ liveRef, onMouseMove, onMouseLeave }: LiveRowProps) => {
-  const { displayMin, displayMax } = useSpectrumDisplay();
+  const displayMin = useAtomValue(displayMinAtom);
+  const displayMax = useAtomValue(displayMaxAtom);
   return (
     <div className={styles.liveRow}>
       <PowerAxis powerMin={displayMin} powerMax={displayMax} />

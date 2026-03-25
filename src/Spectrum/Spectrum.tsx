@@ -1,7 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import { AnnotationManager } from "./AnnotationManager";
-import { buildLUT, COLORMAPS } from "./colormaps";
-import { POWER_CEILING } from "./constants";
 import { InputHandler } from "./InputHandler";
 import { AverageLayer } from "./AverageLayer";
 import { LiveManager } from "./LiveManager";
@@ -10,7 +8,7 @@ import { OccupancyLayer } from "./OccupancyLayer";
 import { OccupancyManager } from "./OccupancyManager";
 import { FrameBuffer } from "./FrameBuffer";
 import * as styles from "./Spectrum.css";
-import { SpectrumDisplayContext } from "./SpectrumContext";
+import type { SpectrumStore } from "./store";
 import { SpectrumLayout } from "./SpectrumRows";
 import { useFrequencyAxis } from "./useFrequencyAxis";
 import { useSpectrumTooltip } from "./useSpectrumTooltip";
@@ -30,21 +28,11 @@ type Props = {
   freqStart: number;
   // kHz per bin
   resolution: number;
-  // dBm — adjustable display floor
-  displayMin: number;
-  // dBm — adjustable display ceiling
-  displayMax: number;
-  colorMap: number;
   rowCount: number;
   binCount: number;
   frameBuffer: FrameBuffer;
-  layerVisibility: Record<string, boolean>;
-  avgTau: number;
-  occupancyThreshold: number;
-  annotationsVisible: boolean;
   initialData?: SpectrumInitialData;
-  onDisplayMinChange: (v: number) => void;
-  onDisplayMaxChange: (v: number) => void;
+  store: SpectrumStore;
 };
 
 export type SpectrumHandle = {
@@ -61,16 +49,8 @@ export const Spectrum = forwardRef<SpectrumHandle, Props>(
       binCount,
       freqStart,
       resolution,
-      displayMin,
-      displayMax,
-      colorMap,
-      layerVisibility,
-      avgTau,
-      occupancyThreshold,
-      annotationsVisible,
       initialData,
-      onDisplayMinChange,
-      onDisplayMaxChange,
+      store,
     },
     ref,
   ) => {
@@ -82,10 +62,6 @@ export const Spectrum = forwardRef<SpectrumHandle, Props>(
     const waterfallRef = useRef<HTMLCanvasElement>(null);
     const annotationRef = useRef<HTMLCanvasElement>(null);
     const timeLabelsRef = useRef<HTMLDivElement>(null);
-    const managerRef = useRef(
-      new WaterfallManager(rowCount, binCount, buffer, displayMin, POWER_CEILING),
-    );
-    const liveManagerRef = useRef(new LiveManager(binCount, buffer, displayMin, POWER_CEILING));
     const frequencyAxis = useFrequencyAxis({ freqMin: freqStartMHz, freqMax: freqEndMHz });
     const { update: updateFreqAxis } = frequencyAxis;
     const maxHoldRef = useRef<MaxHoldLayer | null>(null);
@@ -109,26 +85,12 @@ export const Spectrum = forwardRef<SpectrumHandle, Props>(
 
     useTimeLabels(timeLabelsRef, buffer, rowCount);
 
-    useEffect(() => {
-      managerRef.current.updateColormap(buildLUT(COLORMAPS[colorMap]));
-    }, [colorMap]);
-
-    useEffect(() => {
-      managerRef.current.updateDisplayMin(displayMin);
-      liveManagerRef.current.updateDisplayMin(displayMin);
-    }, [displayMin]);
-
-    useEffect(() => {
-      managerRef.current.updateDisplayMax(displayMax);
-      liveManagerRef.current.updateDisplayMax(displayMax);
-    }, [displayMax]);
-
     // oxlint-disable-next-line max-lines-per-function
     useEffect(() => {
       const waterfallCanvas = waterfallRef.current!;
       const liveCanvas = liveRef.current!;
-      const waterfallManager = managerRef.current;
-      const liveManager = liveManagerRef.current;
+      const waterfallManager = new WaterfallManager(rowCount, binCount, buffer, store);
+      const liveManager = new LiveManager(binCount, buffer, store);
 
       const viewport = new Viewport(binCount, waterfallCanvas);
       viewportRef.current = viewport;
@@ -140,11 +102,11 @@ export const Spectrum = forwardRef<SpectrumHandle, Props>(
       maxHoldRef.current = maxHold;
       liveManager.setLayer("max", maxHold.data, "rgba(255, 80, 80, 0.85)");
 
-      const avgLayer = new AverageLayer(binCount, buffer);
+      const avgLayer = new AverageLayer(binCount, buffer, store);
       avgLayerRef.current = avgLayer;
       liveManager.setLayer("avg", avgLayer.data, "rgba(250, 190, 40, 0.85)");
 
-      const occupancyLayer = new OccupancyLayer(binCount, buffer, undefined, initialData?.occupancy);
+      const occupancyLayer = new OccupancyLayer(binCount, buffer, store, initialData?.occupancy);
       occupancyLayerRef.current = occupancyLayer;
       const occupancyRenderer = new OccupancyManager(binCount, occupancyLayer.data);
       occupancyRendererRef.current = occupancyRenderer;
@@ -154,6 +116,7 @@ export const Spectrum = forwardRef<SpectrumHandle, Props>(
         annotationBuffer,
         rowCount,
         binCount,
+        store,
       );
       annotationManager.mount(annotationRef.current!, viewport);
       annotationManagerRef.current = annotationManager;
@@ -197,52 +160,20 @@ export const Spectrum = forwardRef<SpectrumHandle, Props>(
         occupancyLayerRef.current = null;
         occupancyRendererRef.current = null;
         occupancyLayer.destroy();
+        waterfallManager.destroy();
+        liveManager.destroy();
         waterfallInputHandler.destroy();
         liveInputHandler.destroy();
       };
-    }, [waterfallRef, liveRef, buffer, binCount, updateFreqAxis]);
-
-    useEffect(() => {
-      const liveManager = liveManagerRef.current;
-      for (const [id, visible] of Object.entries(layerVisibility)) {
-        liveManager.setLayerVisible(id, visible);
-      }
-      liveManager.render();
-    }, [layerVisibility]);
-
-    useEffect(() => {
-      if (avgLayerRef.current) avgLayerRef.current.tau = avgTau;
-    }, [avgTau]);
-
-    useEffect(() => {
-      const layer = occupancyLayerRef.current;
-      if (layer) {
-        layer.threshold = occupancyThreshold;
-        layer.reset();
-      }
-    }, [occupancyThreshold]);
-
-    useEffect(() => {
-      annotationManagerRef.current?.setVisible(annotationsVisible);
-      liveManagerRef.current.setAnnotationVisible(annotationsVisible);
-      liveManagerRef.current.render();
-    }, [annotationsVisible]);
+    }, [waterfallRef, liveRef, buffer, binCount, rowCount, updateFreqAxis]);
 
     useImperativeHandle(ref, () => ({
       resetMaxHold: () => maxHoldRef.current?.reset(),
       resetOccupancy: () => occupancyLayerRef.current?.reset(),
     }));
 
-    const displaySettings = {
-      colorMap,
-      displayMin,
-      displayMax,
-      onDisplayMinChange,
-      onDisplayMaxChange,
-    };
-
     return (
-      <SpectrumDisplayContext.Provider value={displaySettings}>
+      <>
         <SpectrumLayout
           liveRef={liveRef}
           annotationRef={annotationRef}
@@ -253,7 +184,7 @@ export const Spectrum = forwardRef<SpectrumHandle, Props>(
           canvasHandlers={canvasHandlers}
         />
         <div ref={tooltipRef} className={styles.tooltip} style={{ display: "none" }} />
-      </SpectrumDisplayContext.Provider>
+      </>
     );
   },
 );
