@@ -19,7 +19,7 @@ export type SpectrumInitialData = {
   spectrum: { rows: Int8Array; count: number; timestamps: number[] };
   annotations: { rows: Int8Array; count: number; timestamps: number[] };
   maxHold: Int8Array;
-  occupancy: { values: Float32Array; total: number };
+  occupancy: { counts: Uint32Array; total: number };
 };
 
 export type LayerVisibility = {

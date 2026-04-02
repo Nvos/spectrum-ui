@@ -27,7 +27,7 @@ export class AverageLayer {
         continue;
       }
       const prevRowIdx = (rowIdx - 1 + rowCount) % rowCount;
-      const dt = (buffer.timestamps[rowIdx] - buffer.timestamps[prevRowIdx]) * 1000; // s → ms
+      const dt = buffer.timestamps[rowIdx] - buffer.timestamps[prevRowIdx];
       if (dt <= 0) continue;
       const alpha = 1 - Math.exp(-dt / this.tau);
       for (let b = 0; b < binCount; b++) {
@@ -35,23 +35,18 @@ export class AverageLayer {
       }
     }
 
-    // Anchor the live-path timer to now so the first live frame gets a
-    // realistic dt (~one tick interval) rather than a huge initial step.
-    if (this.initialized) this.lastUpdateMs = Date.now();
+    if (this.initialized) this.lastUpdateMs = buffer.timestamps[(writeRow - 1 + rowCount) % rowCount];
 
     this.unsubscribeBuffer = buffer.subscribe((writtenRow) => {
-      const now = Date.now();
       const offset = writtenRow * binCount;
       if (!this.initialized) {
         for (let b = 0; b < binCount; b++) this.data[b] = buffer.data[offset + b];
         this.initialized = true;
-        this.lastUpdateMs = now;
+        this.lastUpdateMs = buffer.timestamps[writtenRow];
         return;
       }
-      // Use wall-clock ms for per-frame precision — buffer timestamps are
-      // integer seconds which would cause the EMA to jump once per second.
-      const dt = this.lastUpdateMs !== null ? now - this.lastUpdateMs : 60;
-      this.lastUpdateMs = now;
+      const dt = this.lastUpdateMs !== null ? buffer.timestamps[writtenRow] - this.lastUpdateMs : 60;
+      this.lastUpdateMs = buffer.timestamps[writtenRow];
       const alpha = 1 - Math.exp(-dt / this.tau);
       for (let b = 0; b < binCount; b++) {
         this.data[b] = alpha * buffer.data[offset + b] + (1 - alpha) * this.data[b];

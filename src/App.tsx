@@ -24,9 +24,9 @@ const decodeHydration = (payload: HydrationPayload): SpectrumInitialData => {
   const { binCount, spectrum, annotations } = payload;
   const count = spectrum.count;
 
-  const tsBuf = new Uint8Array(count * 4);
+  const tsBuf = new Uint8Array(count * 8);
   tsBuf.setFromBase64(payload.timestamps);
-  const timestamps = Array.from(new Uint32Array(tsBuf.buffer));
+  const timestamps = Array.from(new Float64Array(tsBuf.buffer));
 
   const specBuf = new Uint8Array(count * binCount);
   specBuf.setFromBase64(spectrum.rows);
@@ -38,13 +38,13 @@ const decodeHydration = (payload: HydrationPayload): SpectrumInitialData => {
   maxHoldBuf.setFromBase64(payload.maxHold);
 
   const occBuf = new Uint8Array(binCount * 4);
-  occBuf.setFromBase64(payload.occupancy.values);
+  occBuf.setFromBase64(payload.occupancy.counts);
 
   return {
     spectrum: { rows: new Int8Array(specBuf.buffer), count, timestamps },
     annotations: { rows: new Int8Array(annBuf.buffer), count, timestamps },
     maxHold: new Int8Array(maxHoldBuf.buffer),
-    occupancy: { values: new Float32Array(occBuf.buffer), total: payload.occupancy.total },
+    occupancy: { counts: new Uint32Array(occBuf.buffer), total: payload.occupancy.total },
   };
 };
 
@@ -69,18 +69,19 @@ type SpectrumParams = { freqStart: number; resolution: number; binCount: number;
 type SpectrumConfig = { params: SpectrumParams; initialData?: SpectrumInitialData };
 
 const useMockInterval = (frameBuffer: FrameBuffer | null) => {
-  const frameBytesRef = useRef(new Uint8Array(4 + 2 * MOCK_BIN_COUNT));
+  const frameBytesRef = useRef(new Uint8Array(12 + 2 * MOCK_BIN_COUNT));
 
   const processFrame = useCallback((frame: string) => {
     if (!frameBuffer) return;
     frameBytesRef.current.setFromBase64(frame);
     const bytes = frameBytesRef.current;
     const dv = new DataView(bytes.buffer);
-    const waterfallLen = dv.getUint16(0, true);
-    const annotationLen = dv.getUint16(2, true);
-    const waterfallRow = new Int8Array(bytes.buffer, 4, waterfallLen);
-    const annotationRow = new Int8Array(bytes.buffer, 4 + waterfallLen, annotationLen);
-    frameBuffer.push(waterfallRow, annotationRow);
+    const timestampMs = dv.getFloat64(0, true);
+    const waterfallLen = dv.getUint16(8, true);
+    const annotationLen = dv.getUint16(10, true);
+    const waterfallRow = new Int8Array(bytes.buffer, 12, waterfallLen);
+    const annotationRow = new Int8Array(bytes.buffer, 12 + waterfallLen, annotationLen);
+    frameBuffer.push(waterfallRow, annotationRow, timestampMs);
   }, [frameBuffer]);
 
   useEffect(() => {

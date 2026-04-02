@@ -25,25 +25,26 @@ export type HydrationPayload = {
   spectrum: { count: number; rows: string };
   annotations: { count: number; rows: string };
   maxHold: string;
-  occupancy: { total: number; values: string };
+  occupancy: { total: number; counts: string };
 };
 
 export const generateLiveFrame = (binCount: number): string => {
-  const buffer = new ArrayBuffer(4 + 2 * binCount);
+  const buffer = new ArrayBuffer(12 + 2 * binCount);
   const view = new DataView(buffer);
-  view.setUint16(0, binCount, true);
-  view.setUint16(2, binCount, true);
-  generateRow(new Int8Array(buffer, 4, binCount), binCount);
-  generateAnnotationRow(new Int8Array(buffer, 4 + binCount, binCount), binCount);
+  view.setFloat64(0, Date.now(), true);
+  view.setUint16(8, binCount, true);
+  view.setUint16(10, binCount, true);
+  generateRow(new Int8Array(buffer, 12, binCount), binCount);
+  generateAnnotationRow(new Int8Array(buffer, 12 + binCount, binCount), binCount);
   return toBase64(buffer);
 }
 
 export const generateHydrationPayload = (): HydrationPayload => {
-  const now = Math.floor(Date.now() / 1000);
+  const now = Date.now();
   const n = MOCK_HYDRATION_ROWS;
   const bins = MOCK_BIN_COUNT;
 
-  const timestamps = new Uint32Array(n);
+  const timestamps = new Float64Array(n);
   const spectrumRows = new Int8Array(n * bins);
   const annotationRows = new Int8Array(n * bins);
   const maxHold = new Int8Array(bins).fill(POWER_NO_READING);
@@ -56,7 +57,7 @@ export const generateHydrationPayload = (): HydrationPayload => {
     generateRow(rowBuf, bins);
     generateAnnotationRow(annBuf, bins);
 
-    timestamps[i] = now - Math.round((n - 1 - i) * TICK_MS / 1000);
+    timestamps[i] = now - Math.round((n - 1 - i) * TICK_MS);
     spectrumRows.set(rowBuf, i * bins);
     annotationRows.set(annBuf, i * bins);
 
@@ -65,9 +66,6 @@ export const generateHydrationPayload = (): HydrationPayload => {
       if (rowBuf[b] > OCCUPANCY_THRESHOLD_DBM) occupancyCounts[b]++;
     }
   }
-
-  const occupancyValues = new Float32Array(bins);
-  for (let b = 0; b < bins; b++) occupancyValues[b] = occupancyCounts[b] / n;
 
   return {
     lastTimestamp: timestamps[n - 1],
@@ -78,7 +76,7 @@ export const generateHydrationPayload = (): HydrationPayload => {
     spectrum: { count: n, rows: toBase64(spectrumRows.buffer) },
     annotations: { count: n, rows: toBase64(annotationRows.buffer) },
     maxHold: toBase64(maxHold.buffer),
-    occupancy: { total: n, values: toBase64(occupancyValues.buffer) },
+    occupancy: { total: n, counts: toBase64(occupancyCounts.buffer) },
   };
 }
 

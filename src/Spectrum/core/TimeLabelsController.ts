@@ -96,7 +96,7 @@ export class TimeLabelsController {
         labels.splice(i, 1);
       } else {
         label.el.style.top = `${pct}%`;
-        const ageSec = Math.round(newestTs - label.createdTs);
+        const ageSec = Math.round((newestTs - label.createdTs) / 1000);
         if (ageSec !== label.lastAgeSec) {
           label.lastAgeSec = ageSec;
           label.textEl.textContent = `${ageSec}s`;

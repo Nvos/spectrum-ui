@@ -10,7 +10,7 @@ export class RingBuffer {
   rowCount: number;
   binCount: number;
   data: Int8Array;
-  timestamps: Uint32Array;
+  timestamps: Float64Array;
   writeRow: number = 0;
   private subscribers = new Set<Subscriber>();
 
@@ -18,7 +18,7 @@ export class RingBuffer {
     this.rowCount = rowCount;
     this.binCount = binCount;
     this.data = new Int8Array(rowCount * binCount).fill(emptyFill);
-    this.timestamps = new Uint32Array(rowCount);
+    this.timestamps = new Float64Array(rowCount);
 
     if (initial && initial.count > 0) {
       const count = Math.min(initial.count, rowCount);
@@ -30,11 +30,11 @@ export class RingBuffer {
     }
   }
 
-  push(row: Int8Array) {
+  push(row: Int8Array, timestampMs: number) {
     const uploadRow = this.writeRow;
 
     this.data.set(row, this.writeRow * this.binCount);
-    this.timestamps[uploadRow] = Math.floor(Date.now() / 1000);
+    this.timestamps[uploadRow] = timestampMs;
     this.writeRow = (this.writeRow + 1) % this.rowCount;
 
     this.subscribers.forEach((subscriber) => subscriber(uploadRow));
