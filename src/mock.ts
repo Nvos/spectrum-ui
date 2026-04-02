@@ -1,4 +1,4 @@
-import { POWER_NO_READING } from "./constants";
+import { POWER_NO_READING } from "./Spectrum/core/constants";
 
 export const TICK_MS = 60;
 
@@ -25,7 +25,7 @@ export type HydrationPayload = {
   spectrum: { count: number; rows: string };
   annotations: { count: number; rows: string };
   maxHold: string;
-  occupancy: { total: number; counts: string };
+  occupancy: { total: number; counts: string; threshold: number };
 };
 
 export const generateLiveFrame = (binCount: number): string => {
@@ -76,7 +76,7 @@ export const generateHydrationPayload = (): HydrationPayload => {
     spectrum: { count: n, rows: toBase64(spectrumRows.buffer) },
     annotations: { count: n, rows: toBase64(annotationRows.buffer) },
     maxHold: toBase64(maxHold.buffer),
-    occupancy: { total: n, counts: toBase64(occupancyCounts.buffer) },
+    occupancy: { total: n, counts: toBase64(occupancyCounts.buffer), threshold: OCCUPANCY_THRESHOLD_DBM },
   };
 }
 

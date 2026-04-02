@@ -19,7 +19,7 @@ export type SpectrumInitialData = {
   spectrum: { rows: Int8Array; count: number; timestamps: number[] };
   annotations: { rows: Int8Array; count: number; timestamps: number[] };
   maxHold: Int8Array;
-  occupancy: { counts: Uint32Array; total: number };
+  occupancy: { counts: Uint32Array; total: number; threshold: number };
 };
 
 export type LayerVisibility = {
@@ -111,7 +111,7 @@ export class SpectrumCore {
       ...options.layerVisibility,
     };
     this.avgTau = options.avgTau ?? 2000;
-    this.occupancyThreshold = options.occupancyThreshold ?? -82;
+    this.occupancyThreshold = options.initialData?.occupancy.threshold ?? options.occupancyThreshold ?? -82;
     this.onDisplayRangeChange = options.onDisplayRangeChange;
   }
 

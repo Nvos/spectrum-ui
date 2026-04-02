@@ -4,8 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as styles from "./App.css";
 import { COLORMAP_NAMES, FrameBuffer, POWER_CEILING, POWER_FLOOR, Spectrum, SpectrumCore } from "./Spectrum";
 import type { SpectrumInitialData } from "./Spectrum";
-import { generateHydrationPayload, generateLiveFrame, MOCK_BIN_COUNT, TICK_MS } from "./Spectrum/core/mock";
-import type { HydrationPayload } from "./Spectrum/core/mock";
+import { generateHydrationPayload, generateLiveFrame, MOCK_BIN_COUNT, TICK_MS } from "./mock";
+import type { HydrationPayload } from "./mock";
 import {
   avgTauAtom,
   colorMapAtom,
@@ -44,7 +44,7 @@ const decodeHydration = (payload: HydrationPayload): SpectrumInitialData => {
     spectrum: { rows: new Int8Array(specBuf.buffer), count, timestamps },
     annotations: { rows: new Int8Array(annBuf.buffer), count, timestamps },
     maxHold: new Int8Array(maxHoldBuf.buffer),
-    occupancy: { counts: new Uint32Array(occBuf.buffer), total: payload.occupancy.total },
+    occupancy: { counts: new Uint32Array(occBuf.buffer), total: payload.occupancy.total, threshold: payload.occupancy.threshold },
   };
 };
 
@@ -155,6 +155,7 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
 
   const handleRehydrate = () => {
     const newData = decodeHydration(generateHydrationPayload());
+    store.set(occupancyThresholdAtom, newData.occupancy.threshold);
     setConfig((prev) => prev ? { params: prev.params, initialData: newData } : null);
   };
 

@@ -12,13 +12,13 @@ export class OccupancyLayer {
     binCount: number,
     buffer: RingBuffer,
     threshold: number,
-    initial?: { counts: Uint32Array; total: number },
+    initial?: { counts: Uint32Array; total: number; threshold: number },
   ) {
     this.binCount = binCount;
     this.threshold = threshold;
     this.data = new Float32Array(binCount);
     this.counts = new Uint32Array(binCount);
-    if (initial && initial.total > 0) {
+    if (initial && initial.total > 0 && initial.threshold === threshold) {
       this.total = initial.total;
       this.counts.set(initial.counts);
       for (let b = 0; b < binCount; b++) {
