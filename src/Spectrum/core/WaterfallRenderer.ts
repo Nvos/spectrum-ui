@@ -11,8 +11,13 @@ import {
 } from "twgl.js";
 import { buildLUT, COLORMAPS, LUT_SIZE } from "./colormaps";
 import { RingBuffer } from "./RingBuffer";
-import { colorMapAtom, displayMaxAtom, displayMinAtom, type SpectrumStore } from "./store";
 import { Viewport } from "./Viewport";
+
+export type WaterfallSettings = {
+  displayMin: number;
+  displayMax: number;
+  colormap: number;
+};
 
 // Each row is a quad positioned in clip space.
 // The vertex shader only translates Y — no ring-buffer math.
@@ -119,7 +124,7 @@ const buildRowGeometry = (rowCount: number) => {
   return { positions, texCoords, indices };
 }
 
-export class WaterfallManager {
+export class WaterfallRenderer {
   canvas!: HTMLCanvasElement;
   ctx!: WebGL2RenderingContext;
   bufferInfo!: BufferInfo;
@@ -134,31 +139,22 @@ export class WaterfallManager {
   private powerMin: number;
   private displayMax: number;
   private currentLUT: Uint8Array;
-  private unsubscribes: Array<() => void>;
 
   constructor(
     rowCount: number,
     binCount: number,
     buffer: RingBuffer,
-    store: SpectrumStore,
+    settings: WaterfallSettings,
   ) {
     this.rowCount = rowCount;
     this.binCount = binCount;
     this.ringBuffer = buffer;
-    this.powerMin = store.get(displayMinAtom);
-    this.displayMax = store.get(displayMaxAtom);
-    this.currentLUT = buildLUT(COLORMAPS[store.get(colorMapAtom)]);
-
-    this.unsubscribes = [
-      store.sub(displayMinAtom, () => this.updateDisplayMin(store.get(displayMinAtom))),
-      store.sub(displayMaxAtom, () => this.updateDisplayMax(store.get(displayMaxAtom))),
-      store.sub(colorMapAtom, () => this.updateColormap(buildLUT(COLORMAPS[store.get(colorMapAtom)]))),
-    ];
+    this.powerMin = settings.displayMin;
+    this.displayMax = settings.displayMax;
+    this.currentLUT = buildLUT(COLORMAPS[settings.colormap]);
   }
 
-  destroy() {
-    for (const unsub of this.unsubscribes) unsub();
-  }
+  destroy() {}
 
   mount(canvas: HTMLCanvasElement, viewport: Viewport) {
     if (!canvas) throw new Error("Canvas not mounted");

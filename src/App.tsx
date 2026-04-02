@@ -1,19 +1,21 @@
 import { useAtomValue, useSetAtom } from "jotai";
 import { Provider } from "jotai";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as styles from "./App.css";
-import { COLORMAP_NAMES, FrameBuffer, POWER_CEILING, POWER_FLOOR, Spectrum } from "./Spectrum";
-import type { SpectrumHandle, SpectrumInitialData } from "./Spectrum";
-import { generateHydrationPayload, generateLiveFrame, MOCK_BIN_COUNT, TICK_MS } from "./Spectrum/mock";
-import type { HydrationPayload } from "./Spectrum/mock";
+import { COLORMAP_NAMES, FrameBuffer, POWER_CEILING, POWER_FLOOR, Spectrum, SpectrumCore } from "./Spectrum";
+import type { SpectrumInitialData } from "./Spectrum";
+import { generateHydrationPayload, generateLiveFrame, MOCK_BIN_COUNT, TICK_MS } from "./Spectrum/core/mock";
+import type { HydrationPayload } from "./Spectrum/core/mock";
 import {
   avgTauAtom,
   colorMapAtom,
   createSpectrumStore,
+  displayMaxAtom,
+  displayMinAtom,
   layerVisibilityAtom,
   occupancyThresholdAtom,
-} from "./Spectrum/store";
-import type { LayerName, SpectrumStore } from "./Spectrum/store";
+} from "./Spectrum/react/store";
+import type { LayerName, SpectrumStore } from "./Spectrum/react/store";
 
 const DEFAULT_BINS = 2000;
 const DEFAULT_ROWS = 300;
@@ -44,7 +46,7 @@ const decodeHydration = (payload: HydrationPayload): SpectrumInitialData => {
     maxHold: new Int8Array(maxHoldBuf.buffer),
     occupancy: { values: new Float32Array(occBuf.buffer), total: payload.occupancy.total },
   };
-}
+};
 
 const LAYERS: { id: LayerName; label: string; color: string }[] = [
   { id: "live", label: "Live", color: "#4ade80" },
@@ -65,7 +67,6 @@ const AVG_TAU_LABELS: Record<number, string> = {
 const makeMockFrameBuffer = (data: SpectrumInitialData): FrameBuffer =>
   new FrameBuffer(DEFAULT_ROWS, DEFAULT_BINS, data.spectrum, data.annotations);
 
-// Drives the mock interval, always pushing into whichever FrameBuffer is current.
 const useMockInterval = (frameBuffer: FrameBuffer) => {
   const frameBytesRef = useRef(new Uint8Array(4 + 2 * DEFAULT_BINS));
 
@@ -89,7 +90,29 @@ const useMockInterval = (frameBuffer: FrameBuffer) => {
     start();
     return () => { stop(); document.removeEventListener("visibilitychange", onVisibility); };
   }, [processFrame]);
-}
+};
+
+// Bridges Jotai atoms → SpectrumCore imperative API.
+// Runs once per (store, core) pair; re-runs when core changes (re-hydrate).
+const useSpectrumCoreBridge = (store: SpectrumStore, core: SpectrumCore) => {
+  useEffect(() => {
+    const unsubs = [
+      store.sub(displayMinAtom, () =>
+        core.setDisplayRange(store.get(displayMinAtom), store.get(displayMaxAtom)),
+      ),
+      store.sub(displayMaxAtom, () =>
+        core.setDisplayRange(store.get(displayMinAtom), store.get(displayMaxAtom)),
+      ),
+      store.sub(colorMapAtom, () => core.setColormap(store.get(colorMapAtom))),
+      store.sub(layerVisibilityAtom, () => core.setLayerVisibility(store.get(layerVisibilityAtom))),
+      store.sub(avgTauAtom, () => core.setAvgTau(store.get(avgTauAtom))),
+      store.sub(occupancyThresholdAtom, () =>
+        core.setOccupancyThreshold(store.get(occupancyThresholdAtom)),
+      ),
+    ];
+    return () => { for (const u of unsubs) u(); };
+  }, [store, core]);
+};
 
 // Inner component — lives inside <Provider store={store}> so atom hooks work.
 const AppInner = ({ store }: { store: SpectrumStore }) => {
@@ -101,6 +124,26 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
 
   useMockInterval(frameBuffer);
 
+  const core = useMemo(
+    () =>
+      new SpectrumCore(frameBuffer, {
+        freqStart: 20_000,
+        resolution: 200,
+        binCount: DEFAULT_BINS,
+        rowCount: DEFAULT_ROWS,
+        initialData,
+        onDisplayRangeChange: (min, max) => {
+          store.set(displayMinAtom, min);
+          store.set(displayMaxAtom, max);
+        },
+      }),
+    // store is stable (created once in storeRef), safe to omit from deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [frameBuffer, initialData],
+  );
+
+  useSpectrumCoreBridge(store, core);
+
   const handleRehydrate = () => {
     const newData = decodeHydration(generateHydrationPayload());
     setInitialData(newData);
@@ -108,7 +151,6 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
     setHydrationKey((k) => k + 1);
   };
 
-  const spectrumRef = useRef<SpectrumHandle>(null);
   const colorMap = useAtomValue(colorMapAtom);
   const setColorMap = useSetAtom(colorMapAtom);
   const layerVisibility = useAtomValue(layerVisibilityAtom);
@@ -164,16 +206,10 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
           </>
         )}
         <div className={styles.separator} />
-        <button
-          onClick={() => spectrumRef.current?.resetMaxHold()}
-          className={styles.button.inactive}
-        >
+        <button onClick={() => core.resetMaxHold()} className={styles.button.inactive}>
           Reset Max
         </button>
-        <button
-          onClick={() => spectrumRef.current?.resetOccupancy()}
-          className={styles.button.inactive}
-        >
+        <button onClick={() => core.resetOccupancy()} className={styles.button.inactive}>
           Reset Occ
         </button>
         <div className={styles.separator} />
@@ -195,21 +231,11 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
         <span className={styles.occLabel}>dBm</span>
       </div>
       <div className={styles.spectrumContainer}>
-        <Spectrum
-          key={hydrationKey}
-          ref={spectrumRef}
-          store={store}
-          frameBuffer={frameBuffer}
-          initialData={initialData}
-          freqStart={20_000}
-          resolution={200}
-          binCount={DEFAULT_BINS}
-          rowCount={DEFAULT_ROWS}
-        />
+        <Spectrum key={hydrationKey} core={core} />
       </div>
     </div>
   );
-}
+};
 
 const App = () => {
   const storeRef = useRef<SpectrumStore | null>(null);
@@ -221,6 +247,6 @@ const App = () => {
       <AppInner store={store} />
     </Provider>
   );
-}
+};
 
 export default App;

@@ -1,7 +1,7 @@
 import { resizeCanvasToDisplaySize } from "twgl.js";
 import type { Viewport } from "./Viewport";
 
-export class OccupancyManager {
+export class OccupancyRenderer {
   private canvas!: HTMLCanvasElement;
   private ctx!: CanvasRenderingContext2D;
   private viewport!: Viewport;

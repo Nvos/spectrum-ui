@@ -1,5 +1,4 @@
 import type { RingBuffer } from "./RingBuffer";
-import { occupancyThresholdAtom, type SpectrumStore } from "./store";
 
 export class OccupancyLayer {
   readonly data: Float32Array;
@@ -8,16 +7,15 @@ export class OccupancyLayer {
   private total = 0;
   private readonly binCount: number;
   private unsubscribeBuffer: () => void;
-  private unsubscribeStore: () => void;
 
   constructor(
     binCount: number,
     buffer: RingBuffer,
-    store: SpectrumStore,
+    threshold: number,
     initial?: { values: Float32Array; total: number },
   ) {
     this.binCount = binCount;
-    this.threshold = store.get(occupancyThresholdAtom);
+    this.threshold = threshold;
     this.data = new Float32Array(binCount);
     this.counts = new Uint32Array(binCount);
     if (initial && initial.total > 0) {
@@ -36,10 +34,11 @@ export class OccupancyLayer {
       }
     });
 
-    this.unsubscribeStore = store.sub(occupancyThresholdAtom, () => {
-      this.threshold = store.get(occupancyThresholdAtom);
-      this.reset();
-    });
+  }
+
+  setThreshold(threshold: number) {
+    this.threshold = threshold;
+    this.reset();
   }
 
   reset() {
@@ -50,6 +49,5 @@ export class OccupancyLayer {
 
   destroy() {
     this.unsubscribeBuffer();
-    this.unsubscribeStore();
   }
 }

@@ -3,12 +3,12 @@ import { computePowerTicks } from "./powerAxisUtils";
 import { POWER_NO_READING } from "./constants";
 import type { RingBuffer } from "./RingBuffer";
 import type { Viewport } from "./Viewport";
-import {
-  displayMaxAtom,
-  displayMinAtom,
-  layerVisibilityAtom,
-  type SpectrumStore,
-} from "./store";
+
+export type LiveSettings = {
+  displayMin: number;
+  displayMax: number;
+  layerVisibility: Record<string, boolean>;
+};
 
 const ANN_OUTLINE_COLOR = "rgba(0, 0, 0, 0.75)";
 const ANN_OUTLINE_WIDTH = 4;
@@ -29,7 +29,7 @@ type LayerConfig = {
   mode: "line" | "fill";
 };
 
-export class LiveManager {
+export class LiveRenderer {
   private canvas!: HTMLCanvasElement;
   private ctx!: CanvasRenderingContext2D;
   private viewport!: Viewport;
@@ -41,37 +41,22 @@ export class LiveManager {
   private annotation: AnnotationSource | null = null;
   private liveVisible: boolean;
   private annotationVisible: boolean;
-  private unsubscribes: Array<() => void>;
 
-  constructor(binCount: number, buffer: RingBuffer, store: SpectrumStore) {
+  constructor(binCount: number, buffer: RingBuffer, settings: LiveSettings) {
     this.binCount = binCount;
     this.ringBuffer = buffer;
-    this.powerMin = store.get(displayMinAtom);
-    this.displayMax = store.get(displayMaxAtom);
-    const vis = store.get(layerVisibilityAtom);
-    this.liveVisible = vis.live;
-    this.annotationVisible = vis.annotations;
-
-    this.unsubscribes = [
-      store.sub(displayMinAtom, () =>
-        this.updateDisplayMin(store.get(displayMinAtom)),
-      ),
-      store.sub(displayMaxAtom, () =>
-        this.updateDisplayMax(store.get(displayMaxAtom)),
-      ),
-      store.sub(layerVisibilityAtom, () => {
-        const v = store.get(layerVisibilityAtom);
-        this.liveVisible = v.live;
-        this.annotationVisible = v.annotations;
-        for (const [id, visible] of Object.entries(v))
-          this.setLayerVisible(id, visible);
-        this.render();
-      }),
-    ];
+    this.powerMin = settings.displayMin;
+    this.displayMax = settings.displayMax;
+    this.liveVisible = settings.layerVisibility.live ?? true;
+    this.annotationVisible = settings.layerVisibility.annotations ?? true;
   }
 
-  destroy() {
-    for (const unsub of this.unsubscribes) unsub();
+  destroy() {}
+
+  updateLayerVisibility(vis: Record<string, boolean>) {
+    this.liveVisible = vis.live ?? this.liveVisible;
+    this.annotationVisible = vis.annotations ?? this.annotationVisible;
+    for (const [id, visible] of Object.entries(vis)) this.setLayerVisible(id, visible);
   }
 
   mount(canvas: HTMLCanvasElement, viewport: Viewport) {

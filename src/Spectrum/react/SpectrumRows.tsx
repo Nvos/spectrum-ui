@@ -1,28 +1,16 @@
-import { useAtomValue } from "jotai";
 import type { RefObject } from "react";
-import { ColormapLegend } from "./ColormapLegend";
-import { PowerAxis } from "./PowerAxis";
-import { displayMaxAtom, displayMinAtom } from "./store";
 import * as styles from "./SpectrumRows.css";
 
 type LiveRowProps = {
   liveRef: RefObject<HTMLCanvasElement | null>;
-  onMouseMove: (e: React.MouseEvent<HTMLCanvasElement>) => void;
-  onMouseLeave: () => void;
+  powerAxisRef: RefObject<HTMLDivElement | null>;
 };
 
-export const LiveRow = ({ liveRef, onMouseMove, onMouseLeave }: LiveRowProps) => {
-  const displayMin = useAtomValue(displayMinAtom);
-  const displayMax = useAtomValue(displayMaxAtom);
+export const LiveRow = ({ liveRef, powerAxisRef }: LiveRowProps) => {
   return (
     <div className={styles.liveRow}>
-      <PowerAxis powerMin={displayMin} powerMax={displayMax} />
-      <canvas
-        className={styles.liveCanvas}
-        ref={liveRef}
-        onMouseMove={onMouseMove}
-        onMouseLeave={onMouseLeave}
-      />
+      <div ref={powerAxisRef} />
+      <canvas className={styles.liveCanvas} ref={liveRef} />
       <div className={styles.spacerW10} />
     </div>
   );
@@ -46,38 +34,20 @@ type WaterfallRowProps = {
   waterfallRef: RefObject<HTMLCanvasElement | null>;
   annotationRef: RefObject<HTMLCanvasElement | null>;
   timeLabelsRef: RefObject<HTMLDivElement | null>;
-  onMouseMove: (e: React.MouseEvent<HTMLCanvasElement>) => void;
-  onMouseLeave: () => void;
+  colormapLegendRef: RefObject<HTMLDivElement | null>;
 };
 
-export const WaterfallRow = ({
-  waterfallRef,
-  annotationRef,
-  timeLabelsRef,
-  onMouseMove,
-  onMouseLeave,
-}: WaterfallRowProps) => {
+export const WaterfallRow = ({ waterfallRef, annotationRef, timeLabelsRef, colormapLegendRef }: WaterfallRowProps) => {
   return (
     <div className={styles.waterfallRow}>
       <div ref={timeLabelsRef} className={styles.timeLabels} />
       <div className={styles.waterfallCanvasContainer}>
-        <canvas
-          className={styles.waterfallCanvas}
-          ref={waterfallRef}
-          onMouseMove={onMouseMove}
-          onMouseLeave={onMouseLeave}
-        />
+        <canvas className={styles.waterfallCanvas} ref={waterfallRef} />
         <canvas className={styles.annotationCanvas} ref={annotationRef} />
       </div>
-      <ColormapLegend />
+      <div ref={colormapLegendRef} />
     </div>
   );
-};
-
-export type CanvasHandlers = {
-  onLiveMouseMove: (e: React.MouseEvent<HTMLCanvasElement>) => void;
-  onWaterfallMouseMove: (e: React.MouseEvent<HTMLCanvasElement>) => void;
-  onMouseLeave: () => void;
 };
 
 type LayoutProps = {
@@ -87,7 +57,8 @@ type LayoutProps = {
   occupancyRef: RefObject<HTMLCanvasElement | null>;
   freqAxisRef: RefObject<HTMLDivElement | null>;
   timeLabelsRef: RefObject<HTMLDivElement | null>;
-  canvasHandlers: CanvasHandlers;
+  powerAxisRef: RefObject<HTMLDivElement | null>;
+  colormapLegendRef: RefObject<HTMLDivElement | null>;
 };
 
 export const SpectrumLayout = ({
@@ -97,16 +68,13 @@ export const SpectrumLayout = ({
   occupancyRef,
   freqAxisRef,
   timeLabelsRef,
-  canvasHandlers,
+  powerAxisRef,
+  colormapLegendRef,
 }: LayoutProps) => {
   return (
     <div className={styles.layout}>
       <div className={styles.layoutInner}>
-        <LiveRow
-          liveRef={liveRef}
-          onMouseMove={canvasHandlers.onLiveMouseMove}
-          onMouseLeave={canvasHandlers.onMouseLeave}
-        />
+        <LiveRow liveRef={liveRef} powerAxisRef={powerAxisRef} />
         <OccupancyRow occupancyRef={occupancyRef} />
         <div className={styles.freqAxisRow}>
           <div className={styles.freqAxisLeft} />
@@ -117,8 +85,7 @@ export const SpectrumLayout = ({
           waterfallRef={waterfallRef}
           annotationRef={annotationRef}
           timeLabelsRef={timeLabelsRef}
-          onMouseMove={canvasHandlers.onWaterfallMouseMove}
-          onMouseLeave={canvasHandlers.onMouseLeave}
+          colormapLegendRef={colormapLegendRef}
         />
       </div>
     </div>

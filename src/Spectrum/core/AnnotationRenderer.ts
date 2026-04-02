@@ -1,7 +1,6 @@
 import { resizeCanvasToDisplaySize } from "twgl.js";
 import { POWER_NO_READING } from "./constants";
 import type { RingBuffer } from "./RingBuffer";
-import { layerVisibilityAtom, type SpectrumStore } from "./store";
 import type { Viewport } from "./Viewport";
 
 // Hot magenta — never appears in SDR heat-map colormaps (black→blue→cyan→green→yellow→red)
@@ -22,7 +21,7 @@ type Block = {
   botRowIdx: number;
 };
 
-export class AnnotationManager {
+export class AnnotationRenderer {
   private canvas!: HTMLCanvasElement;
   private ctx!: CanvasRenderingContext2D;
   private viewport!: Viewport;
@@ -30,17 +29,17 @@ export class AnnotationManager {
   private rowCount: number;
   private binCount: number;
   readonly rowActivity: Uint8Array;
-  private visible = true;
+  private visible: boolean;
   private unsubscribeBuffer: () => void;
-  private unsubscribeStore: () => void;
   private cachedBlocks: Block[] = [];
   private cachedWriteRow = -1;
 
-  constructor(annBuf: RingBuffer, rowCount: number, binCount: number, store: SpectrumStore) {
+  constructor(annBuf: RingBuffer, rowCount: number, binCount: number, visible: boolean) {
     this.annBuf = annBuf;
     this.rowCount = rowCount;
     this.binCount = binCount;
     this.rowActivity = new Uint8Array(rowCount);
+    this.visible = visible;
 
     for (let r = 0; r < rowCount; r++) {
       const offset = r * binCount;
@@ -63,17 +62,10 @@ export class AnnotationManager {
       }
       this.rowActivity[uploadRow] = active ? 1 : 0;
     });
-
-    this.visible = store.get(layerVisibilityAtom).annotations;
-    this.unsubscribeStore = store.sub(layerVisibilityAtom, () => {
-      this.setVisible(store.get(layerVisibilityAtom).annotations);
-      this.render();
-    });
   }
 
   destroy() {
     this.unsubscribeBuffer();
-    this.unsubscribeStore();
   }
 
   mount(canvas: HTMLCanvasElement, viewport: Viewport) {
@@ -256,7 +248,7 @@ export class AnnotationManager {
 
     const writeRow = this.annBuf.writeRow;
 
-    // Same pixel-snapped Y calculation as WaterfallManager
+    // Same pixel-snapped Y calculation as WaterfallRenderer
     const pixelSize = 2.0 / height;
     const rawTranslation = 2.0 - writeRow * (2.0 / rowCount);
     const uT = Math.round(rawTranslation / pixelSize) * pixelSize;

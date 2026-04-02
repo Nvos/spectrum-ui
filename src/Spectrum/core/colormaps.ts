@@ -16,7 +16,7 @@ const piecewise = (controls: [number, number, number][]): ColormapFn => {
   };
 };
 
-// Control points match the GLSL functions in WaterfallManager.ts 1:1
+// Control points match the GLSL functions in WaterfallRenderer.ts 1:1
 const sdr = piecewise([
   [0.0, 0.0, 0.3], // dark navy (–57.5 dBm)
   [0.0, 0.0, 1.0], // pure blue

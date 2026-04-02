@@ -1,12 +1,13 @@
 // Public API
-export { Spectrum } from "./Spectrum";
-export type { SpectrumHandle, SpectrumInitialData } from "./Spectrum";
-export { FrameBuffer } from "./FrameBuffer";
-export { ColorMap, COLORMAP_NAMES } from "./colormaps";
-export { POWER_FLOOR, POWER_CEILING } from "./constants";
-export { createSpectrumStore } from "./store";
-export type { SpectrumStore } from "./store";
-export type { LayerName } from "./store";
+export { Spectrum } from "./react/Spectrum";
+export { SpectrumCore } from "./core/SpectrumCore";
+export type { SpectrumCoreOptions, SpectrumInitialData, SpectrumMountRefs, LayerVisibility } from "./core/SpectrumCore";
+export { FrameBuffer } from "./core/FrameBuffer";
+export { ColorMap, COLORMAP_NAMES } from "./core/colormaps";
+export { POWER_FLOOR, POWER_CEILING } from "./core/constants";
+export { createSpectrumStore } from "./react/store";
+export type { SpectrumStore } from "./react/store";
+export type { LayerName } from "./react/store";
 export {
   displayMinAtom,
   displayMaxAtom,
@@ -14,4 +15,4 @@ export {
   layerVisibilityAtom,
   avgTauAtom,
   occupancyThresholdAtom,
-} from "./store";
+} from "./react/store";

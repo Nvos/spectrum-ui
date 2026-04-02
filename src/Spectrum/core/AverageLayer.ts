@@ -1,5 +1,4 @@
 import type { RingBuffer } from "./RingBuffer";
-import { avgTauAtom, type SpectrumStore } from "./store";
 
 export class AverageLayer {
   readonly data: Float32Array;
@@ -7,10 +6,9 @@ export class AverageLayer {
   private initialized = false;
   private lastUpdateMs: number | null = null;
   private unsubscribeBuffer: () => void;
-  private unsubscribeStore: () => void;
 
-  constructor(binCount: number, buffer: RingBuffer, store: SpectrumStore) {
-    this.tau = store.get(avgTauAtom);
+  constructor(binCount: number, buffer: RingBuffer, tau: number) {
+    this.tau = tau;
     this.data = new Float32Array(binCount);
 
     // Warm up EMA from any pre-filled historical rows (oldest → newest).
@@ -60,9 +58,10 @@ export class AverageLayer {
       }
     });
 
-    this.unsubscribeStore = store.sub(avgTauAtom, () => {
-      this.tau = store.get(avgTauAtom);
-    });
+  }
+
+  setTau(tau: number) {
+    this.tau = tau;
   }
 
   reset() {
@@ -72,6 +71,5 @@ export class AverageLayer {
 
   destroy() {
     this.unsubscribeBuffer();
-    this.unsubscribeStore();
   }
 }

@@ -1,5 +1,5 @@
 import { atom, createStore } from "jotai";
-import { ColorMap } from "./colormaps";
+import { ColorMap } from "../core/colormaps";
 
 export type LayerName = "live" | "avg" | "max" | "annotations";
 
