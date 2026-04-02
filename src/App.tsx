@@ -64,13 +64,14 @@ const AVG_TAU_LABELS: Record<number, string> = {
   10000: "10s",
 };
 
-const makeMockFrameBuffer = (data: SpectrumInitialData): FrameBuffer =>
-  new FrameBuffer(DEFAULT_ROWS, DEFAULT_BINS, data.spectrum, data.annotations);
+type SpectrumParams = { freqStart: number; resolution: number; binCount: number; rowCount: number };
+type SpectrumConfig = { params: SpectrumParams; initialData?: SpectrumInitialData };
 
-const useMockInterval = (frameBuffer: FrameBuffer) => {
-  const frameBytesRef = useRef(new Uint8Array(4 + 2 * DEFAULT_BINS));
+const useMockInterval = (frameBuffer: FrameBuffer | null) => {
+  const frameBytesRef = useRef(new Uint8Array(4 + 2 * MOCK_BIN_COUNT));
 
   const processFrame = useCallback((frame: string) => {
+    if (!frameBuffer) return;
     frameBytesRef.current.setFromBase64(frame);
     const bytes = frameBytesRef.current;
     const dv = new DataView(bytes.buffer);
@@ -82,6 +83,7 @@ const useMockInterval = (frameBuffer: FrameBuffer) => {
   }, [frameBuffer]);
 
   useEffect(() => {
+    if (!frameBuffer) return;
     let handle: ReturnType<typeof setInterval> | null = null;
     const start = () => { handle = setInterval(() => processFrame(generateLiveFrame(MOCK_BIN_COUNT)), TICK_MS); };
     const stop = () => { if (handle !== null) { clearInterval(handle); handle = null; } };
@@ -94,8 +96,9 @@ const useMockInterval = (frameBuffer: FrameBuffer) => {
 
 // Bridges Jotai atoms → SpectrumCore imperative API.
 // Runs once per (store, core) pair; re-runs when core changes (re-hydrate).
-const useSpectrumCoreBridge = (store: SpectrumStore, core: SpectrumCore) => {
+const useSpectrumCoreBridge = (store: SpectrumStore, core: SpectrumCore | null) => {
   useEffect(() => {
+    if (!core) return;
     const unsubs = [
       store.sub(displayMinAtom, () =>
         core.setDisplayRange(store.get(displayMinAtom), store.get(displayMaxAtom)),
@@ -114,41 +117,43 @@ const useSpectrumCoreBridge = (store: SpectrumStore, core: SpectrumCore) => {
   }, [store, core]);
 };
 
+const DEFAULT_PARAMS: SpectrumParams = { freqStart: 20_000, resolution: 200, binCount: DEFAULT_BINS, rowCount: DEFAULT_ROWS };
+
 // Inner component — lives inside <Provider store={store}> so atom hooks work.
 const AppInner = ({ store }: { store: SpectrumStore }) => {
-  const [initialData, setInitialData] = useState<SpectrumInitialData>(() =>
-    decodeHydration(generateHydrationPayload()),
-  );
-  const [frameBuffer, setFrameBuffer] = useState<FrameBuffer>(() => makeMockFrameBuffer(initialData));
-  const [hydrationKey, setHydrationKey] = useState(0);
+  const [paramsForm, setParamsForm] = useState<SpectrumParams>(DEFAULT_PARAMS);
+
+  const [config, setConfig] = useState<SpectrumConfig | null>(() => {
+    const initialData = decodeHydration(generateHydrationPayload());
+    return {
+      params: { freqStart: 20_000, resolution: 200, binCount: DEFAULT_BINS, rowCount: DEFAULT_ROWS },
+      initialData,
+    };
+  });
+
+  const { frameBuffer, core } = useMemo(() => {
+    if (!config) return { frameBuffer: null, core: null };
+    const { params, initialData } = config;
+    const fb = new FrameBuffer(params.rowCount, params.binCount, initialData?.spectrum, initialData?.annotations);
+    const c = new SpectrumCore(fb, {
+      ...params,
+      initialData,
+      onDisplayRangeChange: (min, max) => {
+        store.set(displayMinAtom, min);
+        store.set(displayMaxAtom, max);
+      },
+    });
+    return { frameBuffer: fb, core: c };
+  // store is stable (created once in storeRef), safe to omit from deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config]);
 
   useMockInterval(frameBuffer);
-
-  const core = useMemo(
-    () =>
-      new SpectrumCore(frameBuffer, {
-        freqStart: 20_000,
-        resolution: 200,
-        binCount: DEFAULT_BINS,
-        rowCount: DEFAULT_ROWS,
-        initialData,
-        onDisplayRangeChange: (min, max) => {
-          store.set(displayMinAtom, min);
-          store.set(displayMaxAtom, max);
-        },
-      }),
-    // store is stable (created once in storeRef), safe to omit from deps
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [frameBuffer, initialData],
-  );
-
   useSpectrumCoreBridge(store, core);
 
   const handleRehydrate = () => {
     const newData = decodeHydration(generateHydrationPayload());
-    setInitialData(newData);
-    setFrameBuffer(makeMockFrameBuffer(newData));
-    setHydrationKey((k) => k + 1);
+    setConfig((prev) => prev ? { params: prev.params, initialData: newData } : null);
   };
 
   const colorMap = useAtomValue(colorMapAtom);
@@ -206,10 +211,10 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
           </>
         )}
         <div className={styles.separator} />
-        <button onClick={() => core.resetMaxHold()} className={styles.button.inactive}>
+        <button onClick={() => core?.resetMaxHold()} className={styles.button.inactive}>
           Reset Max
         </button>
-        <button onClick={() => core.resetOccupancy()} className={styles.button.inactive}>
+        <button onClick={() => core?.resetOccupancy()} className={styles.button.inactive}>
           Reset Occ
         </button>
         <div className={styles.separator} />
@@ -230,8 +235,41 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
         />
         <span className={styles.occLabel}>dBm</span>
       </div>
+      <div className={styles.controlsRow}>
+        {(
+          [
+            { key: "freqStart" as const, label: "freqStart (kHz)" },
+            { key: "resolution" as const, label: "resolution (kHz/bin)" },
+            { key: "binCount" as const, label: "binCount" },
+            { key: "rowCount" as const, label: "rowCount" },
+          ] as const
+        ).map(({ key, label }) => (
+          <label key={key} className={styles.occLabel} style={{ display: "flex", flexDirection: "column", gap: "0.125rem" }}>
+            {label}
+            <input
+              type="number"
+              value={paramsForm[key]}
+              onChange={(e) => setParamsForm((p) => ({ ...p, [key]: Number(e.target.value) }))}
+              className={styles.numberInput}
+              style={{ width: "7rem" }}
+            />
+          </label>
+        ))}
+        <button
+          onClick={() => setConfig({ params: paramsForm })}
+          className={styles.button.active}
+        >
+          Apply params
+        </button>
+        <button
+          onClick={() => setConfig(null)}
+          className={styles.button.inactive}
+        >
+          Clear
+        </button>
+      </div>
       <div className={styles.spectrumContainer}>
-        <Spectrum key={hydrationKey} core={core} />
+        {core && <Spectrum core={core} />}
       </div>
     </div>
   );
