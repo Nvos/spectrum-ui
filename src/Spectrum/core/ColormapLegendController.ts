@@ -1,4 +1,4 @@
-import * as styles from "./ColormapLegend.css";
+import * as styles from "./styles.css";
 import { COLORMAPS } from "./colormaps";
 import { POWER_CEILING, POWER_FLOOR } from "./constants";
 import { computePowerTicks } from "./powerAxisUtils";
@@ -59,21 +59,18 @@ export class ColormapLegendController {
 
   mount(container: HTMLElement) {
     this.container = container;
-    container.className = styles.container;
+    container.className = styles.colormapContainer;
 
     const gradientEl = document.createElement("div");
-    gradientEl.className = styles.gradientArea;
-    gradientEl.style.cursor = "grab";
+    gradientEl.className = styles.colormapGradientArea;
 
     const ticks = computePowerTicks(POWER_FLOOR, POWER_CEILING);
     const tickEls = ticks.map(({ dbm, pct }) => {
       const row = document.createElement("div");
-      row.className = styles.tickRow;
+      row.className = styles.colormapTickRow;
       row.style.top = `${pct}%`;
-      row.style.transform = "translateY(-50%)";
       const text = document.createElement("span");
-      text.className = styles.tickText;
-      text.style.textShadow = "0 1px 3px rgba(0,0,0,0.9), 0 -1px 3px rgba(0,0,0,0.9)";
+      text.className = styles.colormapTickText;
       text.textContent = String(dbm);
       row.append(text);
       return row;
@@ -105,12 +102,12 @@ export class ColormapLegendController {
 
   private makeHandle(): { el: HTMLDivElement; textEl: HTMLSpanElement } {
     const el = document.createElement("div");
-    el.className = styles.handle;
+    el.className = styles.colormapHandle;
     el.setAttribute("role", "slider");
     const badge = document.createElement("div");
-    badge.className = styles.handleBadge;
+    badge.className = styles.colormapHandleBadge;
     const textEl = document.createElement("span");
-    textEl.className = styles.handleBadgeText;
+    textEl.className = styles.colormapHandleBadgeText;
     badge.append(textEl);
     el.append(badge);
     return { el, textEl };

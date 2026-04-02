@@ -1,4 +1,4 @@
-import * as styles from "./tooltip.css";
+import * as styles from "./styles.css";
 import type { AverageLayer } from "./AverageLayer";
 import type { MaxHoldLayer } from "./MaxHoldLayer";
 import type { OccupancyLayer } from "./OccupancyLayer";

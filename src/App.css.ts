@@ -1,5 +1,5 @@
 import { style, styleVariants } from "@vanilla-extract/css";
-import { background,  text, font } from "./Spectrum/core/tokens";
+import { background, text, font } from "./Spectrum/tokens";
 
 export const root = style({
   width: "100%",

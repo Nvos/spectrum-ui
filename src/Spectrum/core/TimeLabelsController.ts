@@ -1,3 +1,4 @@
+import * as styles from "./styles.css";
 import type { RingBuffer } from "./RingBuffer";
 
 const MIN_LABEL_SPACING_PX = 80;
@@ -17,18 +18,12 @@ const createLabel = (
   totalPushed: number,
 ): ActiveLabel => {
   const el = document.createElement("div");
-  el.style.cssText =
-    "position:absolute;left:0;right:0;display:flex;align-items:center;" +
-    "transform:translateY(-50%);top:0%;pointer-events:none;";
+  el.className = styles.timeLabelRow;
   const textEl = document.createElement("span");
-  textEl.style.cssText =
-    "flex:1;text-align:right;font-size:10px;font-family:ui-monospace,monospace;" +
-    "color:rgba(255,255,255,0.65);line-height:1;padding-right:2px;" +
-    "text-shadow:0 1px 2px rgba(0,0,0,0.95),0 -1px 2px rgba(0,0,0,0.95);";
+  textEl.className = styles.timeLabelText;
   textEl.textContent = "-0s";
   const tick = document.createElement("div");
-  tick.style.cssText =
-    "width:6px;height:1px;flex-shrink:0;background:rgba(255,255,255,0.25);";
+  tick.className = styles.timeLabelTick;
   el.append(textEl, tick);
   container.append(el);
   return { createdAt: totalPushed, createdTs: ts, lastAgeSec: 0, el, textEl };

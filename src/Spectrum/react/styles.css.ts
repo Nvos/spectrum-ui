@@ -1,5 +1,5 @@
 import { style } from "@vanilla-extract/css";
-import { text, font } from "./tokens";
+import { font, text } from "../tokens";
 
 export const tooltip = style({
   position: "fixed",
@@ -17,9 +17,4 @@ export const tooltip = style({
   gridTemplateColumns: "auto auto",
   columnGap: "0.625rem",
   rowGap: "0.1rem",
-});
-
-export const tooltipLabel = style({
-  color: text.muted,
-  textAlign: "right",
 });

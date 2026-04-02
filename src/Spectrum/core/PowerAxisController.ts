@@ -1,4 +1,4 @@
-import * as styles from "./PowerAxis.css";
+import * as styles from "./styles.css";
 import { computePowerTicks } from "./powerAxisUtils";
 
 export class PowerAxisController {
@@ -13,7 +13,7 @@ export class PowerAxisController {
 
   mount(container: HTMLElement) {
     this.container = container;
-    container.className = styles.container;
+    container.className = styles.powerAxisContainer;
     this.render();
   }
 
@@ -29,14 +29,13 @@ export class PowerAxisController {
     container.textContent = "";
     for (const { dbm, pct } of computePowerTicks(this.displayMin, this.displayMax)) {
       const row = document.createElement("div");
-      row.className = styles.tickRow;
+      row.className = styles.powerAxisTickRow;
       row.style.top = `${pct}%`;
-      row.style.transform = "translateY(-50%)";
       const label = document.createElement("span");
-      label.className = styles.tickLabel;
+      label.className = styles.powerAxisTickLabel;
       label.textContent = String(dbm);
       const line = document.createElement("div");
-      line.className = styles.tickLine;
+      line.className = styles.powerAxisTickLine;
       row.append(label, line);
       container.append(row);
     }

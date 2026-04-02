@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { SpectrumCore } from "../core/SpectrumCore";
-import * as styles from "../core/tooltip.css";
+import * as styles from "./styles.css";
 import { SpectrumLayout } from "./SpectrumRows";
 
 type Props = {

@@ -1,4 +1,4 @@
-import * as styles from "./FrequencyAxis.css";
+import * as styles from "./styles.css";
 
 const TICK_SLOT_PX = 9 * 6 + 10;
 
@@ -36,13 +36,13 @@ const computeTicks = (
 
 const createTickElement = (container: HTMLElement): HTMLElement => {
   const el = document.createElement("div");
-  el.className = styles.tick;
+  el.className = styles.freqAxisTick;
   const topMark = document.createElement("div");
-  topMark.className = styles.tickMark;
+  topMark.className = styles.freqAxisTickMark;
   const label = document.createElement("span");
-  label.className = styles.tickLabel;
+  label.className = styles.freqAxisTickLabel;
   const bottomMark = document.createElement("div");
-  bottomMark.className = styles.tickMark;
+  bottomMark.className = styles.freqAxisTickMark;
   el.append(topMark, label, bottomMark);
   container.append(el);
   return el;
@@ -78,9 +78,7 @@ export class FrequencyAxisController {
     ticks.forEach(({ freq, pct }, i) => {
       const el = this.tickPool[i];
       el.style.left = `${pct}%`;
-      el.style.display = "flex";
-      el.style.transform = "translateX(-50%)";
-      el.style.alignItems = "center";
+      el.style.display = "";
       (el.children[1] as HTMLElement).textContent = formatFreq(freq);
     });
 
