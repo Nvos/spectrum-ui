@@ -52,6 +52,7 @@ const LAYERS: { id: LayerName; label: string; color: string }[] = [
   { id: "live", label: "Live", color: "#4ade80" },
   { id: "avg", label: "Average", color: "#fabe28" },
   { id: "max", label: "Max Hold", color: "#ff5050" },
+  { id: "maxSnapshot", label: "Max Snapshot", color: "#b450ff" },
   { id: "annotations", label: "Annotations", color: "#ff00c8" },
 ];
 
@@ -213,6 +214,15 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
         <div className={styles.separator} />
         <button onClick={() => core?.resetMaxHold()} className={styles.button.inactive}>
           Reset Max
+        </button>
+        <button
+          onClick={() => {
+            core?.takeMaxSnapshot();
+            setLayerVisibility((prev) => ({ ...prev, maxSnapshot: true }));
+          }}
+          className={styles.button.inactive}
+        >
+          Snapshot
         </button>
         <button onClick={() => core?.resetOccupancy()} className={styles.button.inactive}>
           Reset Occ

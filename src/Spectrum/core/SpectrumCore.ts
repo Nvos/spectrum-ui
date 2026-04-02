@@ -26,6 +26,7 @@ export type LayerVisibility = {
   live: boolean;
   avg: boolean;
   max: boolean;
+  maxSnapshot: boolean;
   annotations: boolean;
 };
 
@@ -78,6 +79,7 @@ export class SpectrumCore {
   private liveRenderer: LiveRenderer | null = null;
   private annotationRenderer: AnnotationRenderer | null = null;
   private maxHold: MaxHoldLayer | null = null;
+  private maxSnapshotData: Int8Array | null = null;
   private avgLayer: AverageLayer | null = null;
   private occupancyLayer: OccupancyLayer | null = null;
   private freqAxisController: FrequencyAxisController | null = null;
@@ -104,6 +106,7 @@ export class SpectrumCore {
       live: true,
       avg: true,
       max: true,
+      maxSnapshot: false,
       annotations: true,
       ...options.layerVisibility,
     };
@@ -239,10 +242,18 @@ export class SpectrumCore {
     this.liveInput = null;
     this.rafHandle = null;
     this.unsubscribeBuffer = null;
+    this.maxSnapshotData = null;
   }
 
   resetMaxHold() {
     this.maxHold?.reset();
+  }
+
+  takeMaxSnapshot() {
+    if (!this.maxHold || !this.liveRenderer) return;
+    this.maxSnapshotData = new Int8Array(this.maxHold.data);
+    this.liveRenderer.setLayer("maxSnapshot", this.maxSnapshotData, "rgba(180, 80, 255, 0.85)", "line");
+    this.liveRenderer.setLayerVisible("maxSnapshot", this.layerVisibility.maxSnapshot);
   }
 
   resetOccupancy() {
