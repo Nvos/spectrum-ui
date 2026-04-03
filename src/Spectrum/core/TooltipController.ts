@@ -69,11 +69,13 @@ export class TooltipController {
     const avg = avgLayer.data[binIndex];
     const max = maxHold.data[binIndex];
     const occ = occupancyLayer.data[binIndex];
+    const ts = buffer.timestamps[row];
 
     const cell = (label: string, value: string) =>
       `<span class="${styles.tooltipLabel}">${label}</span><span>${value}</span>`;
 
     tt.innerHTML =
+      (ts > 0 ? cell("time", new Date(ts).toLocaleTimeString()) : "") +
       cell("freq", `${freqMHz.toFixed(3)} MHz`) +
       cell("live", `${dbm} dBm`) +
       (avg !== undefined ? cell("avg", `${avg.toFixed(1)} dBm`) : "") +
