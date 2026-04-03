@@ -18,6 +18,7 @@ export type SpectrumInitialData = {
   spectrum: { rows: Int8Array; count: number; timestamps: number[] };
   annotations: { rows: Int8Array; count: number; timestamps: number[] };
   maxHold: Int8Array;
+  maxSnapshot?: Int8Array;
   occupancy: { counts: Uint32Array; total: number; threshold: number };
 };
 
@@ -42,6 +43,7 @@ export type SpectrumCoreOptions = {
   avgTau?: number;
   occupancyThreshold?: number;
   onDisplayRangeChange?: (min: number, max: number) => void;
+  onReset?: () => void;
 };
 
 export type SpectrumMountRefs = {
@@ -64,6 +66,7 @@ export class SpectrumCore {
   private binCount: number;
   private initialData: SpectrumInitialData | undefined;
   private onDisplayRangeChange: ((min: number, max: number) => void) | undefined;
+  private onReset: (() => void) | undefined;
 
   // Settings
   private displayMin: number;
@@ -112,6 +115,7 @@ export class SpectrumCore {
     this.avgTau = options.avgTau ?? 2000;
     this.occupancyThreshold = options.initialData?.occupancy.threshold ?? options.occupancyThreshold ?? -82;
     this.onDisplayRangeChange = options.onDisplayRangeChange;
+    this.onReset = options.onReset;
   }
 
   // oxlint-disable-next-line max-lines-per-function
@@ -160,6 +164,8 @@ export class SpectrumCore {
       viewport,
     });
     tooltipController.mount(refs.tooltip, refs.live, refs.waterfall);
+
+    if (initialData?.maxSnapshot) this.takeMaxSnapshot(initialData.maxSnapshot);
 
     const powerAxisController = new PowerAxisController(displayMin, displayMax);
     powerAxisController.mount(refs.powerAxis);
@@ -243,15 +249,23 @@ export class SpectrumCore {
     this.maxSnapshotData = null;
   }
 
+  resetAll() {
+    this.maxHold?.reset();
+    this.avgLayer?.reset();
+    this.occupancyRenderer?.reset();
+    this.onReset?.();
+  }
+
   resetMaxHold() {
     this.maxHold?.reset();
   }
 
-  takeMaxSnapshot() {
-    if (!this.maxHold || !this.liveRenderer) return;
-    this.maxSnapshotData = new Int8Array(this.maxHold.data);
+  takeMaxSnapshot(data?: Int8Array): Int8Array | null {
+    if (!this.maxHold || !this.liveRenderer) return null;
+    this.maxSnapshotData = data ? new Int8Array(data) : new Int8Array(this.maxHold.data);
     this.liveRenderer.setLayer("maxSnapshot", this.maxSnapshotData, "rgba(180, 80, 255, 0.85)", "line");
     this.liveRenderer.setLayerVisible("maxSnapshot", this.layerVisibility.maxSnapshot);
+    return this.maxSnapshotData;
   }
 
   resetOccupancy() {

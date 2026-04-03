@@ -51,6 +51,9 @@ export class AnnotationRenderer {
       }
     }
 
+    this.cachedBlocks = this.computeBlocksFull(annBuf.writeRow);
+    this.cachedWriteRow = annBuf.writeRow;
+
     this.unsubscribeBuffer = annBuf.subscribe((uploadRow) => {
       const offset = uploadRow * binCount;
       let active = false;
@@ -61,6 +64,10 @@ export class AnnotationRenderer {
         }
       }
       this.rowActivity[uploadRow] = active ? 1 : 0;
+
+      const writeRow = this.annBuf.writeRow;
+      this.cachedBlocks = this.computeBlocks(writeRow);
+      this.cachedWriteRow = writeRow;
     });
   }
 
@@ -261,11 +268,6 @@ export class AnnotationRenderer {
     const { start, end } = viewport;
     const binToX = (bin: number) =>
       ((bin / binCount - start) / (end - start)) * width;
-
-    if (writeRow !== this.cachedWriteRow) {
-      this.cachedBlocks = this.computeBlocks(writeRow);
-      this.cachedWriteRow = writeRow;
-    }
 
     const completedBlocks = this.cachedBlocks;
 

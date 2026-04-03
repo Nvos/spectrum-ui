@@ -2,7 +2,14 @@ import { useAtomValue, useSetAtom } from "jotai";
 import { Provider } from "jotai";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as styles from "./App.css";
-import { COLORMAP_NAMES, FrameBuffer, POWER_CEILING, POWER_FLOOR, Spectrum, SpectrumCore } from "./Spectrum";
+import {
+  COLORMAP_NAMES,
+  FrameBuffer,
+  POWER_CEILING,
+  POWER_FLOOR,
+  Spectrum,
+  SpectrumCore,
+} from "./Spectrum";
 import type { SpectrumInitialData } from "./Spectrum";
 import { generateHydrationPayload, generateLiveFrame, MOCK_BIN_COUNT, TICK_MS } from "./mock";
 import type { HydrationPayload } from "./mock";
@@ -37,6 +44,9 @@ const decodeHydration = (payload: HydrationPayload): SpectrumInitialData => {
   const maxHoldBuf = new Uint8Array(binCount);
   maxHoldBuf.setFromBase64(payload.maxHold);
 
+  const maxSnapshotBuf = new Uint8Array(binCount);
+  maxSnapshotBuf.setFromBase64(payload.maxSnapshot);
+
   const occBuf = new Uint8Array(binCount * 4);
   occBuf.setFromBase64(payload.occupancy.counts);
 
@@ -44,7 +54,12 @@ const decodeHydration = (payload: HydrationPayload): SpectrumInitialData => {
     spectrum: { rows: new Int8Array(specBuf.buffer), count, timestamps },
     annotations: { rows: new Int8Array(annBuf.buffer), count, timestamps },
     maxHold: new Int8Array(maxHoldBuf.buffer),
-    occupancy: { counts: new Uint32Array(occBuf.buffer), total: payload.occupancy.total, threshold: payload.occupancy.threshold },
+    maxSnapshot: new Int8Array(maxSnapshotBuf.buffer),
+    occupancy: {
+      counts: new Uint32Array(occBuf.buffer),
+      total: payload.occupancy.total,
+      threshold: payload.occupancy.threshold,
+    },
   };
 };
 
@@ -71,28 +86,41 @@ type SpectrumConfig = { params: SpectrumParams; initialData?: SpectrumInitialDat
 const useMockInterval = (frameBuffer: FrameBuffer | null) => {
   const frameBytesRef = useRef(new Uint8Array(12 + 2 * MOCK_BIN_COUNT));
 
-  const processFrame = useCallback((frame: string) => {
-    if (!frameBuffer) return;
-    frameBytesRef.current.setFromBase64(frame);
-    const bytes = frameBytesRef.current;
-    const dv = new DataView(bytes.buffer);
-    const timestampMs = dv.getFloat64(0, true);
-    const waterfallLen = dv.getUint16(8, true);
-    const annotationLen = dv.getUint16(10, true);
-    const waterfallRow = new Int8Array(bytes.buffer, 12, waterfallLen);
-    const annotationRow = new Int8Array(bytes.buffer, 12 + waterfallLen, annotationLen);
-    frameBuffer.push(waterfallRow, annotationRow, timestampMs);
-  }, [frameBuffer]);
+  const processFrame = useCallback(
+    (frame: string) => {
+      if (!frameBuffer) return;
+      frameBytesRef.current.setFromBase64(frame);
+      const bytes = frameBytesRef.current;
+      const dv = new DataView(bytes.buffer);
+      const timestampMs = dv.getFloat64(0, true);
+      const waterfallLen = dv.getUint16(8, true);
+      const annotationLen = dv.getUint16(10, true);
+      const waterfallRow = new Int8Array(bytes.buffer, 12, waterfallLen);
+      const annotationRow = new Int8Array(bytes.buffer, 12 + waterfallLen, annotationLen);
+      frameBuffer.push(waterfallRow, annotationRow, timestampMs);
+    },
+    [frameBuffer],
+  );
 
   useEffect(() => {
     if (!frameBuffer) return;
     let handle: ReturnType<typeof setInterval> | null = null;
-    const start = () => { handle = setInterval(() => processFrame(generateLiveFrame(MOCK_BIN_COUNT)), TICK_MS); };
-    const stop = () => { if (handle !== null) { clearInterval(handle); handle = null; } };
+    const start = () => {
+      handle = setInterval(() => processFrame(generateLiveFrame(MOCK_BIN_COUNT)), TICK_MS);
+    };
+    const stop = () => {
+      if (handle !== null) {
+        clearInterval(handle);
+        handle = null;
+      }
+    };
     const onVisibility = () => (document.hidden ? stop() : start());
     document.addEventListener("visibilitychange", onVisibility);
     start();
-    return () => { stop(); document.removeEventListener("visibilitychange", onVisibility); };
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [processFrame]);
 };
 
@@ -115,11 +143,18 @@ const useSpectrumCoreBridge = (store: SpectrumStore, core: SpectrumCore | null) 
         core.setOccupancyThreshold(store.get(occupancyThresholdAtom)),
       ),
     ];
-    return () => { for (const u of unsubs) u(); };
+    return () => {
+      for (const u of unsubs) u();
+    };
   }, [store, core]);
 };
 
-const DEFAULT_PARAMS: SpectrumParams = { freqStart: 20_000, resolution: 200, binCount: DEFAULT_BINS, rowCount: DEFAULT_ROWS };
+const DEFAULT_PARAMS: SpectrumParams = {
+  freqStart: 20_000,
+  resolution: 200,
+  binCount: DEFAULT_BINS,
+  rowCount: DEFAULT_ROWS,
+};
 
 // Inner component — lives inside <Provider store={store}> so atom hooks work.
 const AppInner = ({ store }: { store: SpectrumStore }) => {
@@ -128,7 +163,12 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
   const [config, setConfig] = useState<SpectrumConfig | null>(() => {
     const initialData = decodeHydration(generateHydrationPayload());
     return {
-      params: { freqStart: 20_000, resolution: 200, binCount: DEFAULT_BINS, rowCount: DEFAULT_ROWS },
+      params: {
+        freqStart: 20_000,
+        resolution: 200,
+        binCount: DEFAULT_BINS,
+        rowCount: DEFAULT_ROWS,
+      },
       initialData,
     };
   });
@@ -136,7 +176,12 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
   const { frameBuffer, core } = useMemo(() => {
     if (!config) return { frameBuffer: null, core: null };
     const { params, initialData } = config;
-    const fb = new FrameBuffer(params.rowCount, params.binCount, initialData?.spectrum, initialData?.annotations);
+    const fb = new FrameBuffer(
+      params.rowCount,
+      params.binCount,
+      initialData?.spectrum,
+      initialData?.annotations,
+    );
     const c = new SpectrumCore(fb, {
       ...params,
       initialData,
@@ -144,10 +189,11 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
         store.set(displayMinAtom, min);
         store.set(displayMaxAtom, max);
       },
+      onReset: () => console.log("[spectrum] reset all"),
     });
     return { frameBuffer: fb, core: c };
-  // store is stable (created once in storeRef), safe to omit from deps
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // store is stable (created once in storeRef), safe to omit from deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config]);
 
   useMockInterval(frameBuffer);
@@ -156,7 +202,7 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
   const handleRehydrate = () => {
     const newData = decodeHydration(generateHydrationPayload());
     store.set(occupancyThresholdAtom, newData.occupancy.threshold);
-    setConfig((prev) => prev ? { params: prev.params, initialData: newData } : null);
+    setConfig((prev) => (prev ? { params: prev.params, initialData: newData } : null));
   };
 
   const colorMap = useAtomValue(colorMapAtom);
@@ -214,20 +260,18 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
           </>
         )}
         <div className={styles.separator} />
-        <button onClick={() => core?.resetMaxHold()} className={styles.button.inactive}>
-          Reset Max
+        <button onClick={() => core?.resetAll()} className={styles.button.inactive}>
+          Reset
         </button>
         <button
           onClick={() => {
-            core?.takeMaxSnapshot();
+            const snapshot = core?.takeMaxSnapshot();
+            if (snapshot) console.log("[spectrum] snapshot taken", snapshot.length, "bins");
             setLayerVisibility((prev) => ({ ...prev, maxSnapshot: true }));
           }}
           className={styles.button.inactive}
         >
           Snapshot
-        </button>
-        <button onClick={() => core?.resetOccupancy()} className={styles.button.inactive}>
-          Reset Occ
         </button>
         <div className={styles.separator} />
         <div className={styles.separator} />
@@ -256,7 +300,11 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
             { key: "rowCount" as const, label: "rowCount" },
           ] as const
         ).map(({ key, label }) => (
-          <label key={key} className={styles.occLabel} style={{ display: "flex", flexDirection: "column", gap: "0.125rem" }}>
+          <label
+            key={key}
+            className={styles.occLabel}
+            style={{ display: "flex", flexDirection: "column", gap: "0.125rem" }}
+          >
             {label}
             <input
               type="number"
@@ -267,22 +315,14 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
             />
           </label>
         ))}
-        <button
-          onClick={() => setConfig({ params: paramsForm })}
-          className={styles.button.active}
-        >
+        <button onClick={() => setConfig({ params: paramsForm })} className={styles.button.active}>
           Apply params
         </button>
-        <button
-          onClick={() => setConfig(null)}
-          className={styles.button.inactive}
-        >
+        <button onClick={() => setConfig(null)} className={styles.button.inactive}>
           Clear
         </button>
       </div>
-      <div className={styles.spectrumContainer}>
-        {core && <Spectrum core={core} />}
-      </div>
+      <div className={styles.spectrumContainer}>{core && <Spectrum core={core} />}</div>
     </div>
   );
 };
