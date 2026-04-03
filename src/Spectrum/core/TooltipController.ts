@@ -1,7 +1,7 @@
 import * as styles from "./styles.css";
 import type { AverageLayer } from "./AverageLayer";
 import type { MaxHoldLayer } from "./MaxHoldLayer";
-import type { OccupancyLayer } from "./OccupancyLayer";
+import type { OccupancyRenderer } from "./OccupancyRenderer";
 import type { RingBuffer } from "./RingBuffer";
 import type { Viewport } from "./Viewport";
 
@@ -20,7 +20,7 @@ type TooltipOptions = {
   buffer: RingBuffer;
   avgLayer: AverageLayer;
   maxHold: MaxHoldLayer;
-  occupancyLayer: OccupancyLayer;
+  occupancyLayer: OccupancyRenderer;
   viewport: Viewport;
 };
 

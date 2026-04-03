@@ -7,7 +7,6 @@ import { FrameBuffer } from "./FrameBuffer";
 import { InputHandler } from "./InputHandler";
 import { LiveRenderer } from "./LiveRenderer";
 import { MaxHoldLayer } from "./MaxHoldLayer";
-import { OccupancyLayer } from "./OccupancyLayer";
 import { OccupancyRenderer } from "./OccupancyRenderer";
 import { PowerAxisController } from "./PowerAxisController";
 import { TimeLabelsController } from "./TimeLabelsController";
@@ -81,7 +80,7 @@ export class SpectrumCore {
   private maxHold: MaxHoldLayer | null = null;
   private maxSnapshotData: Int8Array | null = null;
   private avgLayer: AverageLayer | null = null;
-  private occupancyLayer: OccupancyLayer | null = null;
+  private occupancyRenderer: OccupancyRenderer | null = null;
   private freqAxisController: FrequencyAxisController | null = null;
   private timeLabelsController: TimeLabelsController | null = null;
   private tooltipController: TooltipController | null = null;
@@ -136,8 +135,7 @@ export class SpectrumCore {
     const avgLayer = new AverageLayer(binCount, buffer, avgTau);
     liveRenderer.setLayer("avg", avgLayer.data, "rgba(250, 190, 40, 0.85)");
 
-    const occupancyLayer = new OccupancyLayer(binCount, buffer, occupancyThreshold, initialData?.occupancy);
-    const occupancyRenderer = new OccupancyRenderer(binCount, occupancyLayer.data);
+    const occupancyRenderer = new OccupancyRenderer(binCount, buffer, occupancyThreshold, initialData?.occupancy);
     occupancyRenderer.mount(refs.occupancy, viewport);
 
     const annotationRenderer = new AnnotationRenderer(annotationBuffer, rowCount, binCount, layerVisibility.annotations);
@@ -158,7 +156,7 @@ export class SpectrumCore {
       buffer,
       avgLayer,
       maxHold,
-      occupancyLayer,
+      occupancyLayer: occupancyRenderer,
       viewport,
     });
     tooltipController.mount(refs.tooltip, refs.live, refs.waterfall);
@@ -201,7 +199,7 @@ export class SpectrumCore {
     this.annotationRenderer = annotationRenderer;
     this.maxHold = maxHold;
     this.avgLayer = avgLayer;
-    this.occupancyLayer = occupancyLayer;
+    this.occupancyRenderer = occupancyRenderer;
     this.freqAxisController = freqAxisController;
     this.timeLabelsController = timeLabelsController;
     this.tooltipController = tooltipController;
@@ -215,7 +213,7 @@ export class SpectrumCore {
     this.annotationRenderer?.destroy();
     this.maxHold?.destroy();
     this.avgLayer?.destroy();
-    this.occupancyLayer?.destroy();
+    this.occupancyRenderer?.destroy();
     this.waterfallRenderer?.destroy();
     this.liveRenderer?.destroy();
     this.waterfallInput?.destroy();
@@ -232,7 +230,7 @@ export class SpectrumCore {
     this.annotationRenderer = null;
     this.maxHold = null;
     this.avgLayer = null;
-    this.occupancyLayer = null;
+    this.occupancyRenderer = null;
     this.freqAxisController = null;
     this.timeLabelsController = null;
     this.tooltipController = null;
@@ -257,7 +255,7 @@ export class SpectrumCore {
   }
 
   resetOccupancy() {
-    this.occupancyLayer?.reset();
+    this.occupancyRenderer?.reset();
   }
 
   setDisplayRange(min: number, max: number) {
@@ -293,6 +291,6 @@ export class SpectrumCore {
 
   setOccupancyThreshold(threshold: number) {
     this.occupancyThreshold = threshold;
-    this.occupancyLayer?.setThreshold(threshold);
+    this.occupancyRenderer?.setThreshold(threshold);
   }
 }
