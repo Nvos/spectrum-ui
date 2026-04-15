@@ -10,11 +10,13 @@ import { MaxHoldLayer } from "./MaxHoldLayer";
 import { OccupancyRenderer } from "./OccupancyRenderer";
 import { PowerAxisController } from "./PowerAxisController";
 import { SpectrumSubviewCore } from "./SpectrumSubviewCore";
+import { SubviewHighlightController } from "./SubviewHighlightController";
 import { TimeLabelsController } from "./TimeLabelsController";
 import { TooltipController } from "./TooltipController";
 import { Viewport } from "./Viewport";
 import { WaterfallRenderer } from "./WaterfallRenderer";
 import type { SubviewHandle, SubviewRefs } from "./SpectrumSubviewCore";
+import type { HighlightRange } from "./SubviewHighlightController";
 
 export type SpectrumInitialData = {
   spectrum: { rows: Int8Array; count: number; timestamps: number[] };
@@ -54,6 +56,7 @@ export type SpectrumMountRefs = {
   annotation: HTMLCanvasElement;
   occupancy: HTMLCanvasElement;
   freqAxis: HTMLElement;
+  subviewHighlight: HTMLElement;
   timeLabels: HTMLDivElement;
   tooltip: HTMLDivElement;
   powerAxis: HTMLDivElement;
@@ -91,6 +94,7 @@ export class SpectrumCore {
   private tooltipController: TooltipController | null = null;
   private powerAxisController: PowerAxisController | null = null;
   private colormapLegendController: ColormapLegendController | null = null;
+  private subviewHighlightController: SubviewHighlightController | null = null;
   private waterfallInput: InputHandler | null = null;
   private liveInput: InputHandler | null = null;
   private rafHandle: number | null = null;
@@ -182,8 +186,12 @@ export class SpectrumCore {
     });
     colormapLegendController.mount(refs.colormapLegend);
 
+    const subviewHighlightController = new SubviewHighlightController();
+    subviewHighlightController.mount(refs.subviewHighlight);
+
     const renderAll = () => {
       freqAxisController.update(viewport.start, viewport.end);
+      subviewHighlightController.update(viewport.start, viewport.end);
       waterfallRenderer.render();
       liveRenderer.render();
       occupancyRenderer.render();
@@ -217,6 +225,7 @@ export class SpectrumCore {
     this.tooltipController = tooltipController;
     this.powerAxisController = powerAxisController;
     this.colormapLegendController = colormapLegendController;
+    this.subviewHighlightController = subviewHighlightController;
   }
 
   destroy() {
@@ -235,6 +244,7 @@ export class SpectrumCore {
     this.tooltipController?.destroy();
     this.powerAxisController?.destroy();
     this.colormapLegendController?.destroy();
+    this.subviewHighlightController?.destroy();
 
     this.waterfallRenderer = null;
     this.liveRenderer = null;
@@ -248,6 +258,7 @@ export class SpectrumCore {
     this.tooltipController = null;
     this.powerAxisController = null;
     this.colormapLegendController = null;
+    this.subviewHighlightController = null;
     this.waterfallInput = null;
     this.liveInput = null;
     this.rafHandle = null;
@@ -350,5 +361,9 @@ export class SpectrumCore {
   setOccupancyThreshold(threshold: number) {
     this.occupancyThreshold = threshold;
     this.occupancyRenderer?.setThreshold(threshold);
+  }
+
+  setSubviewHighlights(ranges: HighlightRange[]) {
+    this.subviewHighlightController?.setRanges(ranges);
   }
 }

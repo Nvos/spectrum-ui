@@ -41,6 +41,7 @@ export class SpectrumSubviewCore implements SubviewHandle {
   private tooltipController: TooltipController | null = null;
   private waterfallInput: InputHandler | null = null;
   private liveInput: InputHandler | null = null;
+  private viewport: Viewport | null = null;
 
   private readonly buffer: RingBuffer;
   private readonly rowCount: number;
@@ -119,8 +120,11 @@ export class SpectrumSubviewCore implements SubviewHandle {
     });
     tooltipController.mount(refs.tooltip, refs.live, refs.waterfall);
 
+    const subviewSpan = normalizedEnd - normalizedStart;
+    const toLocal = (v: number) => (v - normalizedStart) / subviewSpan;
+
     const renderAll = () => {
-      freqAxisController.update(viewport.start, viewport.end);
+      freqAxisController.update(toLocal(viewport.start), toLocal(viewport.end));
       waterfallRenderer.render();
       liveRenderer.render();
     };
@@ -132,11 +136,14 @@ export class SpectrumSubviewCore implements SubviewHandle {
     this.liveRenderer = liveRenderer;
     this.freqAxisController = freqAxisController;
     this.tooltipController = tooltipController;
+    this.viewport = viewport;
   }
 
   render() {
-    if (!this.freqAxisController || !this.waterfallRenderer || !this.liveRenderer) return;
-    // viewport may have moved via InputHandler — let renderers read current state
+    if (!this.freqAxisController || !this.waterfallRenderer || !this.liveRenderer || !this.viewport) return;
+    const subviewSpan = this.normalizedEnd - this.normalizedStart;
+    const toLocal = (v: number) => (v - this.normalizedStart) / subviewSpan;
+    this.freqAxisController.update(toLocal(this.viewport.start), toLocal(this.viewport.end));
     this.waterfallRenderer.render();
     this.liveRenderer.render();
   }
@@ -174,5 +181,6 @@ export class SpectrumSubviewCore implements SubviewHandle {
     this.tooltipController = null;
     this.waterfallInput = null;
     this.liveInput = null;
+    this.viewport = null;
   }
 }

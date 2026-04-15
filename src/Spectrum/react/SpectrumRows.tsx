@@ -56,6 +56,7 @@ type LayoutProps = {
   annotationRef: RefObject<HTMLCanvasElement | null>;
   occupancyRef: RefObject<HTMLCanvasElement | null>;
   freqAxisRef: RefObject<HTMLDivElement | null>;
+  subviewHighlightRef: RefObject<HTMLDivElement | null>;
   timeLabelsRef: RefObject<HTMLDivElement | null>;
   powerAxisRef: RefObject<HTMLDivElement | null>;
   colormapLegendRef: RefObject<HTMLDivElement | null>;
@@ -67,6 +68,7 @@ export const SpectrumLayout = ({
   annotationRef,
   occupancyRef,
   freqAxisRef,
+  subviewHighlightRef,
   timeLabelsRef,
   powerAxisRef,
   colormapLegendRef,
@@ -78,7 +80,9 @@ export const SpectrumLayout = ({
         <OccupancyRow occupancyRef={occupancyRef} />
         <div className={styles.freqAxisRow}>
           <div className={styles.freqAxisLeft} />
-          <div className={styles.freqAxisContainer} ref={freqAxisRef} />
+          <div className={styles.freqAxisContainer} ref={freqAxisRef}>
+            <div ref={subviewHighlightRef} style={{ position: "absolute", inset: 0, pointerEvents: "none" }} />
+          </div>
           <div className={styles.freqAxisRight} />
         </div>
         <WaterfallRow

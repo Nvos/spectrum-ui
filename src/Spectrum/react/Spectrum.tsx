@@ -13,6 +13,7 @@ export const Spectrum = ({ core }: Props) => {
   const annotationRef = useRef<HTMLCanvasElement>(null);
   const occupancyRef = useRef<HTMLCanvasElement>(null);
   const freqAxisRef = useRef<HTMLDivElement>(null);
+  const subviewHighlightRef = useRef<HTMLDivElement>(null);
   const timeLabelsRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const powerAxisRef = useRef<HTMLDivElement>(null);
@@ -25,6 +26,7 @@ export const Spectrum = ({ core }: Props) => {
       annotation: annotationRef.current!,
       occupancy: occupancyRef.current!,
       freqAxis: freqAxisRef.current!,
+      subviewHighlight: subviewHighlightRef.current!,
       timeLabels: timeLabelsRef.current!,
       tooltip: tooltipRef.current!,
       powerAxis: powerAxisRef.current!,
@@ -41,6 +43,7 @@ export const Spectrum = ({ core }: Props) => {
         waterfallRef={waterfallRef}
         occupancyRef={occupancyRef}
         freqAxisRef={freqAxisRef}
+        subviewHighlightRef={subviewHighlightRef}
         timeLabelsRef={timeLabelsRef}
         powerAxisRef={powerAxisRef}
         colormapLegendRef={colormapLegendRef}

@@ -25,6 +25,14 @@ import {
 } from "./Spectrum/react/store";
 import type { LayerName, SpectrumStore } from "./Spectrum/react/store";
 
+const SUBVIEW_PALETTE = [
+  { band: "rgba(100, 210, 255, 0.18)", accent: "#64d2ff" },
+  { band: "rgba(255, 180, 50, 0.18)",  accent: "#ffb432" },
+  { band: "rgba(180, 130, 255, 0.18)", accent: "#b482ff" },
+  { band: "rgba(100, 255, 160, 0.18)", accent: "#64ffa0" },
+  { band: "rgba(255, 100, 130, 0.18)", accent: "#ff6482" },
+];
+
 const DEFAULT_BINS = 2000;
 const DEFAULT_ROWS = 300;
 
@@ -205,6 +213,19 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
   useMockInterval(frameBuffer);
   useSpectrumCoreBridge(store, core);
 
+  useEffect(() => {
+    if (!core || !config) return;
+    const { freqStart, binCount, resolution } = config.params;
+    const globalSpan = binCount * resolution;
+    core.setSubviewHighlights(
+      subviewDefs.map((def, i) => ({
+        normalizedStart: (def.freqStart - freqStart) / globalSpan,
+        normalizedEnd: (def.freqEnd - freqStart) / globalSpan,
+        color: SUBVIEW_PALETTE[i % SUBVIEW_PALETTE.length].band,
+      })),
+    );
+  }, [subviewDefs, core, config]);
+
   const handleRehydrate = () => {
     const newData = decodeHydration(generateHydrationPayload());
     store.set(occupancyThresholdAtom, newData.occupancy.threshold);
@@ -358,10 +379,12 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
       <div className={styles.spectrumContainer}>{core && <Spectrum core={core} />}</div>
       {core && subviewDefs.length > 0 && (
         <div className={styles.subviewsRow}>
-          {subviewDefs.map((def) => (
-            <div key={def.id} className={styles.subviewWrapper}>
+          {subviewDefs.map((def, i) => {
+            const { accent } = SUBVIEW_PALETTE[i % SUBVIEW_PALETTE.length];
+            return (
+            <div key={def.id} className={styles.subviewWrapper} style={{ borderTop: `2px solid ${accent}` }}>
               <div className={styles.subviewHeader}>
-                <span>{(def.freqStart / 1000).toFixed(0)}–{(def.freqEnd / 1000).toFixed(0)} MHz</span>
+                <span style={{ color: accent }}>{(def.freqStart / 1000).toFixed(0)}–{(def.freqEnd / 1000).toFixed(0)} MHz</span>
                 <button
                   onClick={() => setSubviewDefs((prev) => prev.filter((d) => d.id !== def.id))}
                   className={styles.button.inactive}
@@ -371,7 +394,8 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
               </div>
               <SpectrumSubview core={core} freqStart={def.freqStart} freqEnd={def.freqEnd} />
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

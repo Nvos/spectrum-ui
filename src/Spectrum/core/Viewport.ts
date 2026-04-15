@@ -20,9 +20,20 @@ export class Viewport {
     return this.canvas.width / this.minBinWidthPx / this.binCount;
   }
 
+  // When minSpan exceeds the valid range (subview too narrow relative to canvas),
+  // clamp it to allow interaction rather than locking the viewport solid.
+  private effectiveMinSpan(): number {
+    const minS = this.minSpan();
+    const maxS = this.resetEnd - this.resetStart;
+    if (minS <= maxS) return minS;
+    // Allow ~10x zoom-in from full subview view, floored at 1 bin width.
+    return Math.max(1 / this.binCount, maxS / 10);
+  }
+
   zoomAt(focusNorm: number, factor: number) {
     const span = this.end - this.start;
-    const newSpan = Math.max(this.minSpan(), span * factor);
+    const maxSpan = this.resetEnd - this.resetStart;
+    const newSpan = Math.min(maxSpan, Math.max(this.effectiveMinSpan(), span * factor));
     const ratio = (focusNorm - this.start) / span;
     this.start = focusNorm - ratio * newSpan;
     this.end = this.start + newSpan;
@@ -42,7 +53,7 @@ export class Viewport {
   }
 
   private clamp() {
-    const min = this.minSpan();
+    const min = this.effectiveMinSpan();
     const span = this.end - this.start;
 
     if (span < min) {
@@ -51,15 +62,15 @@ export class Viewport {
       this.end = c + min / 2;
     }
 
-    if (this.start < 0) {
-      this.end -= this.start;
-      this.start = 0;
+    if (this.start < this.resetStart) {
+      this.end += this.resetStart - this.start;
+      this.start = this.resetStart;
     }
-    if (this.end > 1) {
-      this.start -= this.end - 1;
-      this.end = 1;
+    if (this.end > this.resetEnd) {
+      this.start -= this.end - this.resetEnd;
+      this.end = this.resetEnd;
     }
-    this.start = Math.max(0, this.start);
-    this.end = Math.min(1, this.end);
+    this.start = Math.max(this.resetStart, this.start);
+    this.end = Math.min(this.resetEnd, this.end);
   }
 }
