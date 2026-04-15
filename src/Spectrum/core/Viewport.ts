@@ -5,11 +5,15 @@ export class Viewport {
   private readonly binCount: number;
   private canvas: HTMLCanvasElement;
   private readonly minBinWidthPx: number;
+  private readonly resetStart: number;
+  private readonly resetEnd: number;
 
-  constructor(binCount: number, canvas: HTMLCanvasElement, minBinWidthPx = 12) {
+  constructor(binCount: number, canvas: HTMLCanvasElement, minBinWidthPx = 12, resetStart = 0, resetEnd = 1) {
     this.binCount = binCount;
     this.canvas = canvas;
     this.minBinWidthPx = minBinWidthPx;
+    this.resetStart = resetStart;
+    this.resetEnd = resetEnd;
   }
 
   private minSpan(): number {
@@ -32,8 +36,8 @@ export class Viewport {
   }
 
   reset() {
-    this.start = 0;
-    this.end = 1;
+    this.start = this.resetStart;
+    this.end = this.resetEnd;
     this.clamp();
   }
 

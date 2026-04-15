@@ -75,6 +75,33 @@ export const occLabel = style({
   color: "rgba(255,255,255,0.3)",
 });
 
+export const subviewsRow = style({
+  display: "flex",
+  gap: "0.75rem",
+  padding: "0 2rem 1rem",
+  height: "16rem",
+  flexShrink: 0,
+  overflowX: "auto",
+});
+
+export const subviewWrapper = style({
+  display: "flex",
+  flexDirection: "column",
+  minWidth: "18rem",
+  flex: 1,
+});
+
+export const subviewHeader = style({
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  padding: "0.125rem 0.25rem 0.25rem",
+  fontSize: "0.75rem",
+  fontFamily: font.mono,
+  color: "rgba(255,255,255,0.3)",
+  flexShrink: 0,
+});
+
 export const numberInput = style({
   width: "5rem",
   padding: "0.25rem 0.5rem",

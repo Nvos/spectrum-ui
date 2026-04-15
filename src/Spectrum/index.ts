@@ -1,5 +1,7 @@
 // Public API
 export { Spectrum } from "./react/Spectrum";
+export { SpectrumSubview } from "./react/SpectrumSubview";
+export type { SubviewHandle, SubviewRefs } from "./core/SpectrumSubviewCore";
 export { SpectrumCore } from "./core/SpectrumCore";
 export type { SpectrumCoreOptions, SpectrumInitialData, SpectrumMountRefs, LayerVisibility } from "./core/SpectrumCore";
 export { FrameBuffer } from "./core/FrameBuffer";

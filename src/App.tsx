@@ -9,6 +9,7 @@ import {
   POWER_FLOOR,
   Spectrum,
   SpectrumCore,
+  SpectrumSubview,
 } from "./Spectrum";
 import type { SpectrumInitialData } from "./Spectrum";
 import { generateHydrationPayload, generateLiveFrame, MOCK_BIN_COUNT, TICK_MS } from "./mock";
@@ -157,8 +158,13 @@ const DEFAULT_PARAMS: SpectrumParams = {
 };
 
 // Inner component — lives inside <Provider store={store}> so atom hooks work.
+type SubviewDef = { id: number; freqStart: number; freqEnd: number };
+
 const AppInner = ({ store }: { store: SpectrumStore }) => {
   const [paramsForm, setParamsForm] = useState<SpectrumParams>(DEFAULT_PARAMS);
+  const [subviewDefs, setSubviewDefs] = useState<SubviewDef[]>([]);
+  const [subviewForm, setSubviewForm] = useState({ freqStart: 96_000, freqEnd: 104_000 });
+  const nextSubviewId = useRef(0);
 
   const [config, setConfig] = useState<SpectrumConfig | null>(() => {
     const initialData = decodeHydration(generateHydrationPayload());
@@ -279,6 +285,33 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
           Re-hydrate
         </button>
         <div className={styles.separator} />
+        <span className={styles.occLabel}>zoom</span>
+        <input
+          type="number"
+          value={subviewForm.freqStart}
+          onChange={(e) => setSubviewForm((p) => ({ ...p, freqStart: Number(e.target.value) }))}
+          className={styles.numberInput}
+          style={{ width: "6rem" }}
+        />
+        <span className={styles.occLabel}>–</span>
+        <input
+          type="number"
+          value={subviewForm.freqEnd}
+          onChange={(e) => setSubviewForm((p) => ({ ...p, freqEnd: Number(e.target.value) }))}
+          className={styles.numberInput}
+          style={{ width: "6rem" }}
+        />
+        <span className={styles.occLabel}>kHz</span>
+        <button
+          onClick={() => {
+            if (!core) return;
+            setSubviewDefs((prev) => [...prev, { id: nextSubviewId.current++, ...subviewForm }]);
+          }}
+          className={styles.button.inactive}
+        >
+          Add zoom
+        </button>
+        <div className={styles.separator} />
         <span className={styles.occLabel}>occ thr</span>
         <input
           type="number"
@@ -323,6 +356,24 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
         </button>
       </div>
       <div className={styles.spectrumContainer}>{core && <Spectrum core={core} />}</div>
+      {core && subviewDefs.length > 0 && (
+        <div className={styles.subviewsRow}>
+          {subviewDefs.map((def) => (
+            <div key={def.id} className={styles.subviewWrapper}>
+              <div className={styles.subviewHeader}>
+                <span>{(def.freqStart / 1000).toFixed(0)}–{(def.freqEnd / 1000).toFixed(0)} MHz</span>
+                <button
+                  onClick={() => setSubviewDefs((prev) => prev.filter((d) => d.id !== def.id))}
+                  className={styles.button.inactive}
+                >
+                  ✕
+                </button>
+              </div>
+              <SpectrumSubview core={core} freqStart={def.freqStart} freqEnd={def.freqEnd} />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

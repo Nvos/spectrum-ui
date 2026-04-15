@@ -20,7 +20,7 @@ type TooltipOptions = {
   buffer: RingBuffer;
   avgLayer: AverageLayer;
   maxHold: MaxHoldLayer;
-  occupancyLayer: OccupancyRenderer;
+  occupancyLayer?: OccupancyRenderer;
   viewport: Viewport;
 };
 
@@ -68,7 +68,7 @@ export class TooltipController {
     const dbm = buffer.data[row * binCount + binIndex];
     const avg = avgLayer.data[binIndex];
     const max = maxHold.data[binIndex];
-    const occ = occupancyLayer.data[binIndex];
+    const occ = occupancyLayer?.data[binIndex];
     const ts = buffer.timestamps[row];
 
     const cell = (label: string, value: string) =>

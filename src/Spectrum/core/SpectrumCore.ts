@@ -9,10 +9,12 @@ import { LiveRenderer } from "./LiveRenderer";
 import { MaxHoldLayer } from "./MaxHoldLayer";
 import { OccupancyRenderer } from "./OccupancyRenderer";
 import { PowerAxisController } from "./PowerAxisController";
+import { SpectrumSubviewCore } from "./SpectrumSubviewCore";
 import { TimeLabelsController } from "./TimeLabelsController";
 import { TooltipController } from "./TooltipController";
 import { Viewport } from "./Viewport";
 import { WaterfallRenderer } from "./WaterfallRenderer";
+import type { SubviewHandle, SubviewRefs } from "./SpectrumSubviewCore";
 
 export type SpectrumInitialData = {
   spectrum: { rows: Int8Array; count: number; timestamps: number[] };
@@ -93,6 +95,8 @@ export class SpectrumCore {
   private liveInput: InputHandler | null = null;
   private rafHandle: number | null = null;
   private unsubscribeBuffer: (() => void) | null = null;
+  private subviews: SpectrumSubviewCore[] = [];
+  private pendingSubviewMounts: Array<() => void> = [];
 
   constructor(frameBuffer: FrameBuffer, options: SpectrumCoreOptions) {
     this.frameBuffer = frameBuffer;
@@ -184,6 +188,7 @@ export class SpectrumCore {
       liveRenderer.render();
       occupancyRenderer.render();
       annotationRenderer.render();
+      for (const sv of this.subviews) sv.render();
     };
     const scheduleRender = () => {
       if (this.rafHandle !== null) cancelAnimationFrame(this.rafHandle);
@@ -195,6 +200,7 @@ export class SpectrumCore {
 
     this.unsubscribeBuffer = buffer.subscribe((writtenRow) => {
       waterfallRenderer.push(writtenRow);
+      for (const sv of this.subviews) sv.push(writtenRow);
       scheduleRender();
       tooltipController.refresh();
     });
@@ -247,6 +253,8 @@ export class SpectrumCore {
     this.rafHandle = null;
     this.unsubscribeBuffer = null;
     this.maxSnapshotData = null;
+    for (const sv of this.subviews) sv.destroy();
+    this.subviews = [];
   }
 
   resetAll() {
@@ -272,6 +280,38 @@ export class SpectrumCore {
     this.occupancyRenderer?.reset();
   }
 
+  addSubview(refs: SubviewRefs, subFreqStart: number, subFreqEnd: number): SubviewHandle {
+    if (!this.maxHold || !this.avgLayer) throw new Error("mount() must be called before addSubview()");
+    const globalSpan = this.binCount * this.resolution;
+    const normalizedStart = (subFreqStart - this.freqStart) / globalSpan;
+    const normalizedEnd = (subFreqEnd - this.freqStart) / globalSpan;
+    const subview = new SpectrumSubviewCore(
+      this.frameBuffer.spectrum,
+      this.rowCount,
+      this.binCount,
+      subFreqStart / 1000,
+      subFreqEnd / 1000,
+      normalizedStart,
+      normalizedEnd,
+      { displayMin: this.displayMin, displayMax: this.displayMax, colormap: this.colormap, layerVisibility: this.layerVisibility },
+      [
+        { id: "max", data: this.maxHold.data, color: "rgba(255, 80, 80, 0.85)", mode: "line" },
+        { id: "avg", data: this.avgLayer.data, color: "rgba(250, 190, 40, 0.85)", mode: "line" },
+      ],
+      this.avgLayer,
+      this.maxHold,
+    );
+    subview.mount(refs);
+    this.subviews.push(subview);
+    return {
+      destroy: () => {
+        const idx = this.subviews.indexOf(subview);
+        if (idx !== -1) this.subviews.splice(idx, 1);
+        subview.destroy();
+      },
+    };
+  }
+
   setDisplayRange(min: number, max: number) {
     this.displayMin = min;
     this.displayMax = max;
@@ -281,12 +321,15 @@ export class SpectrumCore {
     this.liveRenderer?.updateDisplayMax(max);
     this.powerAxisController?.update(min, max);
     this.colormapLegendController?.update(min, max, this.colormap);
+    for (const sv of this.subviews) sv.updateDisplayRange(min, max);
   }
 
   setColormap(colormap: number) {
     this.colormap = colormap;
-    this.waterfallRenderer?.updateColormap(buildLUT(COLORMAPS[colormap]));
+    const lut = buildLUT(COLORMAPS[colormap]);
+    this.waterfallRenderer?.updateColormap(lut);
     this.colormapLegendController?.update(this.displayMin, this.displayMax, colormap);
+    for (const sv of this.subviews) sv.updateColormap(lut);
   }
 
   setLayerVisibility(vis: Partial<LayerVisibility>) {
@@ -296,6 +339,7 @@ export class SpectrumCore {
       this.annotationRenderer?.setVisible(vis.annotations);
       this.annotationRenderer?.render();
     }
+    for (const sv of this.subviews) sv.updateLayerVisibility(vis);
   }
 
   setAvgTau(tau: number) {
