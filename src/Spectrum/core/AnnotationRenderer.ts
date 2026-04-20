@@ -32,6 +32,7 @@ export class AnnotationRenderer {
   private visible: boolean;
   private cachedBlocks: Block[] = [];
   private cachedWriteRow = -1;
+  private profileRanges: { start: number; end: number }[] = [];
 
   constructor(annBuf: RingBuffer, rowCount: number, binCount: number, visible: boolean) {
     this.annBuf = annBuf;
@@ -96,6 +97,10 @@ export class AnnotationRenderer {
 
   setVisible(v: boolean) {
     this.visible = v;
+  }
+
+  setProfileRanges(ranges: { start: number; end: number }[]) {
+    this.profileRanges = ranges;
   }
 
   // Full scan: iterate all rowCount rows newest→oldest, merge contiguous same-extent groups.
@@ -237,15 +242,34 @@ export class AnnotationRenderer {
   render = () => {
     const { canvas, ctx, viewport, rowCount, binCount } = this;
     if (!canvas) return;
-    if (!this.visible) {
-      const { width, height } = canvas;
-      ctx.clearRect(0, 0, width, height);
-      return;
-    }
 
     resizeCanvasToDisplaySize(canvas, window.devicePixelRatio || 1);
     const { width, height } = canvas;
     ctx.clearRect(0, 0, width, height);
+
+    const { start, end } = viewport;
+
+    if (this.profileRanges.length > 0) {
+      const span = end - start;
+      ctx.setLineDash([]);
+      ctx.fillStyle = "rgba(59, 130, 246, 0.12)";
+      for (const r of this.profileRanges) {
+        const xL = ((r.start - start) / span) * width;
+        ctx.fillRect(xL, 0, ((r.end - start) / span) * width - xL, height);
+      }
+      ctx.strokeStyle = "rgba(59, 130, 246, 0.5)";
+      ctx.lineWidth = 1;
+      for (const r of this.profileRanges) {
+        const xL = ((r.start - start) / span) * width;
+        const xR = ((r.end - start) / span) * width;
+        ctx.beginPath();
+        ctx.moveTo(xL, 0); ctx.lineTo(xL, height);
+        ctx.moveTo(xR, 0); ctx.lineTo(xR, height);
+        ctx.stroke();
+      }
+    }
+
+    if (!this.visible) return;
 
     const writeRow = this.annBuf.writeRow;
 
@@ -259,7 +283,6 @@ export class AnnotationRenderer {
     const rowTopY = (i: number) => clipToScreenY(-1 + (i + 1) * rowH + uT);
     const rowBotY = (i: number) => clipToScreenY(-1 + i * rowH + uT);
 
-    const { start, end } = viewport;
     const binToX = (bin: number) =>
       ((bin / binCount - start) / (end - start)) * width;
 

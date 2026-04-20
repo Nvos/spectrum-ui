@@ -1,5 +1,7 @@
 import { buildLUT, COLORMAPS } from "./colormaps";
 import { AnnotationRenderer } from "./AnnotationRenderer";
+import { ProfileDragHandler } from "./ProfileDragHandler";
+import type { ProfileRange, NormalizedRange } from "./ProfileTypes";
 import { AverageLayer } from "./AverageLayer";
 import { ColormapLegendController } from "./ColormapLegendController";
 import { FrequencyAxisController } from "./FrequencyAxisController";
@@ -48,6 +50,7 @@ export type SpectrumCoreOptions = {
   occupancyThreshold?: number;
   onDisplayRangeChange?: (min: number, max: number) => void;
   onReset?: () => void;
+  onProfileRangeChange?: (id: string, startMHz: number, endMHz: number) => void;
 };
 
 export type SpectrumMountRefs = {
@@ -98,6 +101,10 @@ export class SpectrumCore {
   private waterfallInput: InputHandler | null = null;
   private liveInput: InputHandler | null = null;
   private rafHandle: number | null = null;
+  private scheduleRender: (() => void) | null = null;
+  private profileDragHandler: ProfileDragHandler | null = null;
+  private profileRangesCache: ProfileRange[] = [];
+  private onProfileRangeChange: ((id: string, startMHz: number, endMHz: number) => void) | undefined;
   private lastProcessedCount = 0;
   private subviews: SpectrumSubviewCore[] = [];
 
@@ -123,6 +130,7 @@ export class SpectrumCore {
     this.occupancyThreshold = options.initialData?.occupancy.threshold ?? options.occupancyThreshold ?? -82;
     this.onDisplayRangeChange = options.onDisplayRangeChange;
     this.onReset = options.onReset;
+    this.onProfileRangeChange = options.onProfileRangeChange;
   }
 
   private processNewRows() {
@@ -223,6 +231,28 @@ export class SpectrumCore {
       this.rafHandle = requestAnimationFrame(renderAll);
     };
 
+    this.scheduleRender = scheduleRender;
+
+    this.profileDragHandler = new ProfileDragHandler(
+      refs.live,
+      viewport,
+      (id, normStart, normEnd) => {
+        const freqStartMHz = this.freqStart / 1000;
+        const span = (this.binCount * this.resolution) / 1000;
+        const startMHz = freqStartMHz + normStart * span;
+        const endMHz = freqStartMHz + normEnd * span;
+        this.profileRangesCache = this.profileRangesCache.map((r) =>
+          r.id === id ? { ...r, freqStartMHz: startMHz, freqEndMHz: endMHz } : r,
+        );
+        const norm = this.toNormalizedRanges(this.profileRangesCache);
+        annotationRenderer.setProfileRanges(norm);
+        liveRenderer.setProfileRanges(norm);
+        this.profileDragHandler?.setRanges(norm);
+        scheduleRender();
+        this.onProfileRangeChange?.(id, startMHz, endMHz);
+      },
+    );
+
     this.waterfallInput = new InputHandler(refs.waterfall, viewport, renderAll);
     this.liveInput = new InputHandler(refs.live, viewport, renderAll);
 
@@ -247,6 +277,9 @@ export class SpectrumCore {
   destroy() {
     if (this.rafHandle !== null) cancelAnimationFrame(this.rafHandle);
     this.frameBuffer.onPush = null;
+    this.profileDragHandler?.destroy();
+    this.profileDragHandler = null;
+    this.scheduleRender = null;
     this.waterfallRenderer?.destroy();
     this.liveRenderer?.destroy();
     this.waterfallInput?.destroy();
@@ -377,5 +410,24 @@ export class SpectrumCore {
 
   setSubviewHighlights(ranges: HighlightRange[]) {
     this.subviewHighlightController?.setRanges(ranges);
+  }
+
+  setProfileRanges(ranges: ProfileRange[]) {
+    this.profileRangesCache = ranges;
+    const norm = this.toNormalizedRanges(ranges);
+    this.annotationRenderer?.setProfileRanges(norm);
+    this.liveRenderer?.setProfileRanges(norm);
+    this.profileDragHandler?.setRanges(norm);
+    this.scheduleRender?.();
+  }
+
+  private toNormalizedRanges(ranges: ProfileRange[]): NormalizedRange[] {
+    const freqStartMHz = this.freqStart / 1000;
+    const span = (this.binCount * this.resolution) / 1000;
+    return ranges.map((r) => ({
+      id: r.id,
+      start: (r.freqStartMHz - freqStartMHz) / span,
+      end: (r.freqEndMHz - freqStartMHz) / span,
+    }));
   }
 }

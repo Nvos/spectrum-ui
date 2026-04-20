@@ -1,13 +1,15 @@
 import { useEffect, useRef } from "react";
 import type { SpectrumCore } from "../core/SpectrumCore";
+import type { ProfileRange } from "../core/ProfileTypes";
 import * as styles from "./styles.css";
 import { SpectrumLayout } from "./SpectrumRows";
 
 type Props = {
   core: SpectrumCore;
+  profileRanges?: ProfileRange[];
 };
 
-export const Spectrum = ({ core }: Props) => {
+export const Spectrum = ({ core, profileRanges }: Props) => {
   const liveRef = useRef<HTMLCanvasElement>(null);
   const waterfallRef = useRef<HTMLCanvasElement>(null);
   const annotationRef = useRef<HTMLCanvasElement>(null);
@@ -34,6 +36,10 @@ export const Spectrum = ({ core }: Props) => {
     });
     return () => core.destroy();
   }, [core]);
+
+  useEffect(() => {
+    core.setProfileRanges(profileRanges ?? []);
+  }, [core, profileRanges]);
 
   return (
     <>

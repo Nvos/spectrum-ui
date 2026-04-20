@@ -7,11 +7,12 @@ import {
   FrameBuffer,
   POWER_CEILING,
   POWER_FLOOR,
+  ProfilePanel,
   Spectrum,
   SpectrumCore,
   SpectrumSubview,
 } from "./Spectrum";
-import type { SpectrumInitialData } from "./Spectrum";
+import type { ProfileRange, SpectrumInitialData } from "./Spectrum";
 import { generateHydrationPayload, generateLiveFrame, MOCK_BIN_COUNT, TICK_MS } from "./mock";
 import type { HydrationPayload } from "./mock";
 import {
@@ -170,6 +171,9 @@ type SubviewDef = { id: number; freqStart: number; freqEnd: number };
 
 const AppInner = ({ store }: { store: SpectrumStore }) => {
   const [paramsForm, setParamsForm] = useState<SpectrumParams>(DEFAULT_PARAMS);
+  const [profileRanges, setProfileRanges] = useState<ProfileRange[]>([]);
+  const profileRangesRef = useRef(profileRanges);
+  profileRangesRef.current = profileRanges;
   const [subviewDefs, setSubviewDefs] = useState<SubviewDef[]>([]);
   const [subviewForm, setSubviewForm] = useState({ freqStart: 96_000, freqEnd: 104_000 });
   const nextSubviewId = useRef(0);
@@ -204,6 +208,11 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
         store.set(displayMaxAtom, max);
       },
       onReset: () => console.log("[spectrum] reset all"),
+      onProfileRangeChange: (id, startMHz, endMHz) => {
+        setProfileRanges(profileRangesRef.current.map((r) =>
+          r.id === id ? { ...r, freqStartMHz: startMHz, freqEndMHz: endMHz } : r,
+        ));
+      },
     });
     return { frameBuffer: fb, core: c };
     // store is stable (created once in storeRef), safe to omit from deps
@@ -376,7 +385,15 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
           Clear
         </button>
       </div>
-      <div className={styles.spectrumContainer}>{core && <Spectrum core={core} />}</div>
+      <div className={styles.spectrumContainer}>{core && <Spectrum core={core} profileRanges={profileRanges} />}</div>
+      {config && (
+        <ProfilePanel
+          ranges={profileRanges}
+          freqStartMHz={config.params.freqStart / 1000}
+          freqEndMHz={(config.params.freqStart + config.params.binCount * config.params.resolution) / 1000}
+          onChange={setProfileRanges}
+        />
+      )}
       {core && subviewDefs.length > 0 && (
         <div className={styles.subviewsRow}>
           {subviewDefs.map((def, i) => {

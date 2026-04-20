@@ -41,6 +41,7 @@ export class LiveRenderer {
   private annotation: AnnotationSource | null = null;
   private liveVisible: boolean;
   private annotationVisible: boolean;
+  private profileRanges: { start: number; end: number }[] = [];
 
   constructor(binCount: number, buffer: RingBuffer, settings: LiveSettings) {
     this.binCount = binCount;
@@ -49,6 +50,10 @@ export class LiveRenderer {
     this.displayMax = settings.displayMax;
     this.liveVisible = settings.layerVisibility.live ?? true;
     this.annotationVisible = settings.layerVisibility.annotations ?? true;
+  }
+
+  setProfileRanges(ranges: { start: number; end: number }[]) {
+    this.profileRanges = ranges;
   }
 
   destroy() {}
@@ -101,9 +106,30 @@ export class LiveRenderer {
       ctx.stroke();
     }
 
-    // --- Spectrum fill + line ---
     const { start, end } = viewport;
     const visibleSpan = end - start;
+
+    // --- Profile bands ---
+    if (this.profileRanges.length > 0) {
+      ctx.setLineDash([]);
+      ctx.fillStyle = "rgba(59, 130, 246, 0.12)";
+      for (const r of this.profileRanges) {
+        const xL = ((r.start - start) / visibleSpan) * width;
+        ctx.fillRect(xL, 0, ((r.end - start) / visibleSpan) * width - xL, height);
+      }
+      ctx.strokeStyle = "rgba(59, 130, 246, 0.5)";
+      ctx.lineWidth = 1;
+      for (const r of this.profileRanges) {
+        const xL = ((r.start - start) / visibleSpan) * width;
+        const xR = ((r.end - start) / visibleSpan) * width;
+        ctx.beginPath();
+        ctx.moveTo(xL, 0); ctx.lineTo(xL, height);
+        ctx.moveTo(xR, 0); ctx.lineTo(xR, height);
+        ctx.stroke();
+      }
+    }
+
+    // --- Spectrum fill + line ---
 
     const row =
       (ringBuffer.writeRow - 1 + ringBuffer.rowCount) % ringBuffer.rowCount;
@@ -242,6 +268,20 @@ export class LiveRenderer {
         ctx.lineWidth = ANN_WIDTH;
         drawAnnLines();
         ctx.setLineDash([]);
+      }
+    }
+
+    // --- Profile drag handles (topmost) ---
+    if (this.profileRanges.length > 0) {
+      const HANDLE_W = 4;
+      const HANDLE_H = 20;
+      ctx.setLineDash([]);
+      ctx.fillStyle = "rgba(59, 130, 246, 0.85)";
+      for (const r of this.profileRanges) {
+        const xL = ((r.start - start) / visibleSpan) * width;
+        const xR = ((r.end - start) / visibleSpan) * width;
+        ctx.fillRect(xL - HANDLE_W / 2, height / 2 - HANDLE_H / 2, HANDLE_W, HANDLE_H);
+        ctx.fillRect(xR - HANDLE_W / 2, height / 2 - HANDLE_H / 2, HANDLE_W, HANDLE_H);
       }
     }
   };
