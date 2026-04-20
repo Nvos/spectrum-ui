@@ -2,6 +2,7 @@ import { FrequencyAxisController } from "./FrequencyAxisController";
 import { InputHandler } from "./InputHandler";
 import { LiveRenderer } from "./LiveRenderer";
 import { OccupancyView } from "./OccupancyView";
+import { PowerAxisController } from "./PowerAxisController";
 import { TooltipController } from "./TooltipController";
 import { Viewport } from "./Viewport";
 import { WaterfallRenderer } from "./WaterfallRenderer";
@@ -15,6 +16,7 @@ export type SubviewRefs = {
   live: HTMLCanvasElement;
   occupancy: HTMLCanvasElement;
   freqAxis: HTMLElement;
+  powerAxis: HTMLDivElement;
   tooltip: HTMLDivElement;
 };
 
@@ -41,6 +43,7 @@ export class SpectrumSubviewCore implements SubviewHandle {
   private liveRenderer: LiveRenderer | null = null;
   private occupancyView: OccupancyView | null = null;
   private freqAxisController: FrequencyAxisController | null = null;
+  private powerAxisController: PowerAxisController | null = null;
   private tooltipController: TooltipController | null = null;
   private waterfallInput: InputHandler | null = null;
   private liveInput: InputHandler | null = null;
@@ -114,6 +117,9 @@ export class SpectrumSubviewCore implements SubviewHandle {
     const freqAxisController = new FrequencyAxisController(subFreqStartMHz, subFreqEndMHz);
     freqAxisController.mount(refs.freqAxis);
 
+    const powerAxisController = new PowerAxisController(settings.displayMin, settings.displayMax);
+    powerAxisController.mount(refs.powerAxis);
+
     const tooltipController = new TooltipController({
       freqStartMHz: subFreqStartMHz,
       freqEndMHz: subFreqEndMHz,
@@ -145,6 +151,7 @@ export class SpectrumSubviewCore implements SubviewHandle {
     this.liveRenderer = liveRenderer;
     this.occupancyView = occupancyView;
     this.freqAxisController = freqAxisController;
+    this.powerAxisController = powerAxisController;
     this.tooltipController = tooltipController;
     this.viewport = viewport;
   }
@@ -169,6 +176,7 @@ export class SpectrumSubviewCore implements SubviewHandle {
     this.waterfallRenderer?.updateDisplayMax(max);
     this.liveRenderer?.updateDisplayMin(min);
     this.liveRenderer?.updateDisplayMax(max);
+    this.powerAxisController?.update(min, max);
   }
 
   updateColormap(lut: Uint8Array) {
@@ -187,10 +195,12 @@ export class SpectrumSubviewCore implements SubviewHandle {
     this.liveRenderer?.destroy();
     this.occupancyView?.destroy();
     this.freqAxisController?.destroy();
+    this.powerAxisController?.destroy();
     this.waterfallRenderer = null;
     this.liveRenderer = null;
     this.occupancyView = null;
     this.freqAxisController = null;
+    this.powerAxisController = null;
     this.tooltipController = null;
     this.waterfallInput = null;
     this.liveInput = null;

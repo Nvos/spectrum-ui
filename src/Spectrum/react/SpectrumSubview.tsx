@@ -14,6 +14,7 @@ export const SpectrumSubview = ({ core, freqStart, freqEnd }: Props) => {
   const liveRef = useRef<HTMLCanvasElement>(null);
   const occupancyRef = useRef<HTMLCanvasElement>(null);
   const freqAxisRef = useRef<HTMLDivElement>(null);
+  const powerAxisRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -23,6 +24,7 @@ export const SpectrumSubview = ({ core, freqStart, freqEnd }: Props) => {
         live: liveRef.current!,
         occupancy: occupancyRef.current!,
         freqAxis: freqAxisRef.current!,
+        powerAxis: powerAxisRef.current!,
         tooltip: tooltipRef.current!,
       },
       freqStart,
@@ -35,16 +37,22 @@ export const SpectrumSubview = ({ core, freqStart, freqEnd }: Props) => {
     <>
       <div className={styles.subviewLayout}>
         <div className={styles.subviewLiveRow}>
+          <div ref={powerAxisRef} />
           <canvas className={styles.subviewLiveCanvas} ref={liveRef} />
         </div>
         <div className={styles.subviewOccupancyRow}>
+          <div className={styles.subviewOccupancySpacer} />
           <canvas className={styles.subviewOccupancyCanvas} ref={occupancyRef} />
         </div>
         <div className={styles.subviewFreqAxisRow}>
+          <div className={styles.subviewFreqAxisLeft} />
           <div className={styles.subviewFreqAxisContainer} ref={freqAxisRef} />
         </div>
         <div className={styles.subviewWaterfallRow}>
-          <canvas className={styles.subviewWaterfallCanvas} ref={waterfallRef} />
+          <div className={styles.subviewWaterfallLeft} />
+          <div className={styles.subviewWaterfallContainer}>
+            <canvas className={styles.subviewWaterfallCanvas} ref={waterfallRef} />
+          </div>
         </div>
       </div>
       <div ref={tooltipRef} className={tooltipStyles.tooltip} style={{ display: "none" }} />
