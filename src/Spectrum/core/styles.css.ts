@@ -164,3 +164,10 @@ export const tooltipLabel = style({
   color: text.muted,
   textAlign: "right",
 });
+
+export const tooltipDivider = style({
+  gridColumn: "1 / -1",
+  height: "1px",
+  backgroundColor: "rgba(255,255,255,0.1)",
+  margin: "0.25rem 0",
+});

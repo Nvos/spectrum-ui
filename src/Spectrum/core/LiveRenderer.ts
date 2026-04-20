@@ -3,6 +3,7 @@ import { computePowerTicks } from "./powerAxisUtils";
 import { POWER_NO_READING } from "./constants";
 import type { RingBuffer } from "./RingBuffer";
 import type { Viewport } from "./Viewport";
+import type { NormalizedRange } from "./ProfileTypes";
 
 export type LiveSettings = {
   displayMin: number;
@@ -41,7 +42,7 @@ export class LiveRenderer {
   private annotation: AnnotationSource | null = null;
   private liveVisible: boolean;
   private annotationVisible: boolean;
-  private profileRanges: { start: number; end: number }[] = [];
+  private profileRanges: NormalizedRange[] = [];
 
   constructor(binCount: number, buffer: RingBuffer, settings: LiveSettings) {
     this.binCount = binCount;
@@ -52,7 +53,7 @@ export class LiveRenderer {
     this.annotationVisible = settings.layerVisibility.annotations ?? true;
   }
 
-  setProfileRanges(ranges: { start: number; end: number }[]) {
+  setProfileRanges(ranges: NormalizedRange[]) {
     this.profileRanges = ranges;
   }
 
@@ -271,7 +272,7 @@ export class LiveRenderer {
       }
     }
 
-    // --- Profile drag handles (topmost) ---
+    // --- Profile drag handles + labels (topmost) ---
     if (this.profileRanges.length > 0) {
       const HANDLE_W = 4;
       const HANDLE_H = 20;
@@ -282,6 +283,10 @@ export class LiveRenderer {
         const xR = ((r.end - start) / visibleSpan) * width;
         ctx.fillRect(xL - HANDLE_W / 2, height / 2 - HANDLE_H / 2, HANDLE_W, HANDLE_H);
         ctx.fillRect(xR - HANDLE_W / 2, height / 2 - HANDLE_H / 2, HANDLE_W, HANDLE_H);
+        const label = `#${r.numericId}`;
+        ctx.font = "bold 11px monospace";
+        ctx.fillStyle = "rgba(59, 130, 246, 0.9)";
+        ctx.fillText(label, xL + HANDLE_W / 2 + 3, 14);
       }
     }
   };

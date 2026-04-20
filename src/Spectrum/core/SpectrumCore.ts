@@ -248,6 +248,7 @@ export class SpectrumCore {
         annotationRenderer.setProfileRanges(norm);
         liveRenderer.setProfileRanges(norm);
         this.profileDragHandler?.setRanges(norm);
+        this.tooltipController?.setProfileRanges(norm);
         scheduleRender();
         this.onProfileRangeChange?.(id, startMHz, endMHz);
       },
@@ -418,6 +419,7 @@ export class SpectrumCore {
     this.annotationRenderer?.setProfileRanges(norm);
     this.liveRenderer?.setProfileRanges(norm);
     this.profileDragHandler?.setRanges(norm);
+    this.tooltipController?.setProfileRanges(norm);
     this.scheduleRender?.();
   }
 
@@ -426,8 +428,11 @@ export class SpectrumCore {
     const span = (this.binCount * this.resolution) / 1000;
     return ranges.map((r) => ({
       id: r.id,
+      numericId: r.numericId,
+      name: r.name,
       start: (r.freqStartMHz - freqStartMHz) / span,
       end: (r.freqEndMHz - freqStartMHz) / span,
+      powerDbm: r.powerDbm,
     }));
   }
 }

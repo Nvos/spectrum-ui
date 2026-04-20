@@ -4,6 +4,7 @@ import type { MaxHoldLayer } from "./MaxHoldLayer";
 import type { OccupancyRenderer } from "./OccupancyRenderer";
 import type { RingBuffer } from "./RingBuffer";
 import type { Viewport } from "./Viewport";
+import type { NormalizedRange } from "./ProfileTypes";
 
 type MousePosition = {
   clientX: number;
@@ -30,12 +31,21 @@ export class TooltipController {
   private liveCanvas: HTMLCanvasElement | null = null;
   private waterfallCanvas: HTMLCanvasElement | null = null;
   private lastMouse: MousePosition | null = null;
+  private profileRanges: NormalizedRange[] = [];
 
   constructor(opts: TooltipOptions) {
     this.opts = opts;
   }
 
-  mount(tooltip: HTMLDivElement, liveCanvas: HTMLCanvasElement, waterfallCanvas: HTMLCanvasElement) {
+  setProfileRanges(ranges: NormalizedRange[]) {
+    this.profileRanges = ranges;
+  }
+
+  mount(
+    tooltip: HTMLDivElement,
+    liveCanvas: HTMLCanvasElement,
+    waterfallCanvas: HTMLCanvasElement,
+  ) {
     this.tooltip = tooltip;
     this.liveCanvas = liveCanvas;
     this.waterfallCanvas = waterfallCanvas;
@@ -51,11 +61,25 @@ export class TooltipController {
     const tt = this.tooltip;
     if (!pos || !tt) return;
 
-    const { freqStartMHz, freqEndMHz, binCount, rowCount, buffer, avgLayer, maxHold, occupancyLayer, viewport } = this.opts;
+    const {
+      freqStartMHz,
+      freqEndMHz,
+      binCount,
+      rowCount,
+      buffer,
+      avgLayer,
+      maxHold,
+      occupancyLayer,
+      viewport,
+    } = this.opts;
 
-    const viewNorm = viewport.start + pos.normX * (viewport.end - viewport.start);
+    const viewNorm =
+      viewport.start + pos.normX * (viewport.end - viewport.start);
     const freqMHz = freqStartMHz + viewNorm * (freqEndMHz - freqStartMHz);
-    const binIndex = Math.max(0, Math.min(binCount - 1, Math.floor(viewNorm * binCount)));
+    const binIndex = Math.max(
+      0,
+      Math.min(binCount - 1, Math.floor(viewNorm * binCount)),
+    );
     const row =
       pos.waterfallNormY === undefined
         ? (buffer.writeRow - 1 + buffer.rowCount) % buffer.rowCount
@@ -74,13 +98,23 @@ export class TooltipController {
     const cell = (label: string, value: string) =>
       `<span class="${styles.tooltipLabel}">${label}</span><span>${value}</span>`;
 
+    const activeRange = this.profileRanges.find(
+      (r) => viewNorm >= r.start && viewNorm <= r.end,
+    );
+
     tt.innerHTML =
       (ts > 0 ? cell("time", new Date(ts).toLocaleTimeString()) : "") +
       cell("freq", `${freqMHz.toFixed(3)} MHz`) +
       cell("live", `${dbm} dBm`) +
       (avg !== undefined ? cell("avg", `${avg.toFixed(1)} dBm`) : "") +
-      (max !== undefined && isFinite(max) ? cell("max", `${max.toFixed(1)} dBm`) : "") +
-      (occ !== undefined ? cell("occ", `${(occ * 100).toFixed(1)}%`) : "");
+      (max !== undefined && isFinite(max)
+        ? cell("max", `${max.toFixed(1)} dBm`)
+        : "") +
+      (occ !== undefined ? cell("occ", `${(occ * 100).toFixed(1)}%`) : "") +
+      (activeRange
+        ? `<div class="${styles.tooltipDivider}"></div>` +
+          cell("pwr", `${activeRange.powerDbm} dBm`)
+        : "");
 
     tt.style.left = `${pos.clientX + 8}px`;
     tt.style.top = `${pos.clientY - 8}px`;
@@ -124,7 +158,10 @@ export class TooltipController {
   destroy() {
     this.liveCanvas?.removeEventListener("mousemove", this.onLiveMouseMove);
     this.liveCanvas?.removeEventListener("mouseleave", this.onMouseLeave);
-    this.waterfallCanvas?.removeEventListener("mousemove", this.onWaterfallMouseMove);
+    this.waterfallCanvas?.removeEventListener(
+      "mousemove",
+      this.onWaterfallMouseMove,
+    );
     this.waterfallCanvas?.removeEventListener("mouseleave", this.onMouseLeave);
     this.tooltip = null;
     this.liveCanvas = null;
