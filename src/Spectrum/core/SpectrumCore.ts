@@ -100,7 +100,6 @@ export class SpectrumCore {
   private rafHandle: number | null = null;
   private unsubscribeBuffer: (() => void) | null = null;
   private subviews: SpectrumSubviewCore[] = [];
-  private pendingSubviewMounts: Array<() => void> = [];
 
   constructor(frameBuffer: FrameBuffer, options: SpectrumCoreOptions) {
     this.frameBuffer = frameBuffer;
@@ -292,7 +291,7 @@ export class SpectrumCore {
   }
 
   addSubview(refs: SubviewRefs, subFreqStart: number, subFreqEnd: number): SubviewHandle {
-    if (!this.maxHold || !this.avgLayer) throw new Error("mount() must be called before addSubview()");
+    if (!this.maxHold || !this.avgLayer || !this.occupancyRenderer) throw new Error("mount() must be called before addSubview()");
     const globalSpan = this.binCount * this.resolution;
     const normalizedStart = (subFreqStart - this.freqStart) / globalSpan;
     const normalizedEnd = (subFreqEnd - this.freqStart) / globalSpan;
@@ -311,6 +310,7 @@ export class SpectrumCore {
       ],
       this.avgLayer,
       this.maxHold,
+      this.occupancyRenderer.data,
     );
     subview.mount(refs);
     this.subviews.push(subview);

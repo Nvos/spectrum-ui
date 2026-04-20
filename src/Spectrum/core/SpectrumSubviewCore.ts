@@ -1,6 +1,7 @@
 import { FrequencyAxisController } from "./FrequencyAxisController";
 import { InputHandler } from "./InputHandler";
 import { LiveRenderer } from "./LiveRenderer";
+import { OccupancyView } from "./OccupancyView";
 import { TooltipController } from "./TooltipController";
 import { Viewport } from "./Viewport";
 import { WaterfallRenderer } from "./WaterfallRenderer";
@@ -12,6 +13,7 @@ import type { LayerVisibility } from "./SpectrumCore";
 export type SubviewRefs = {
   waterfall: HTMLCanvasElement;
   live: HTMLCanvasElement;
+  occupancy: HTMLCanvasElement;
   freqAxis: HTMLElement;
   tooltip: HTMLDivElement;
 };
@@ -37,6 +39,7 @@ type SubviewSettings = {
 export class SpectrumSubviewCore implements SubviewHandle {
   private waterfallRenderer: WaterfallRenderer | null = null;
   private liveRenderer: LiveRenderer | null = null;
+  private occupancyView: OccupancyView | null = null;
   private freqAxisController: FrequencyAxisController | null = null;
   private tooltipController: TooltipController | null = null;
   private waterfallInput: InputHandler | null = null;
@@ -54,6 +57,7 @@ export class SpectrumSubviewCore implements SubviewHandle {
   private readonly layers: LayerEntry[];
   private readonly avgLayer: AverageLayer;
   private readonly maxHold: MaxHoldLayer;
+  private readonly occupancyData: Float32Array;
 
   constructor(
     buffer: RingBuffer,
@@ -67,6 +71,7 @@ export class SpectrumSubviewCore implements SubviewHandle {
     layers: LayerEntry[],
     avgLayer: AverageLayer,
     maxHold: MaxHoldLayer,
+    occupancyData: Float32Array,
   ) {
     this.buffer = buffer;
     this.rowCount = rowCount;
@@ -79,6 +84,7 @@ export class SpectrumSubviewCore implements SubviewHandle {
     this.layers = layers;
     this.avgLayer = avgLayer;
     this.maxHold = maxHold;
+    this.occupancyData = occupancyData;
   }
 
   mount(refs: SubviewRefs) {
@@ -132,8 +138,12 @@ export class SpectrumSubviewCore implements SubviewHandle {
     this.waterfallInput = new InputHandler(refs.waterfall, viewport, renderAll);
     this.liveInput = new InputHandler(refs.live, viewport, renderAll);
 
+    const occupancyView = new OccupancyView(this.occupancyData, binCount);
+    occupancyView.mount(refs.occupancy, viewport);
+
     this.waterfallRenderer = waterfallRenderer;
     this.liveRenderer = liveRenderer;
+    this.occupancyView = occupancyView;
     this.freqAxisController = freqAxisController;
     this.tooltipController = tooltipController;
     this.viewport = viewport;
@@ -146,6 +156,7 @@ export class SpectrumSubviewCore implements SubviewHandle {
     this.freqAxisController.update(toLocal(this.viewport.start), toLocal(this.viewport.end));
     this.waterfallRenderer.render();
     this.liveRenderer.render();
+    this.occupancyView?.render();
   }
 
   push(writtenRow: number) {
@@ -174,9 +185,11 @@ export class SpectrumSubviewCore implements SubviewHandle {
     this.tooltipController?.destroy();
     this.waterfallRenderer?.destroy();
     this.liveRenderer?.destroy();
+    this.occupancyView?.destroy();
     this.freqAxisController?.destroy();
     this.waterfallRenderer = null;
     this.liveRenderer = null;
+    this.occupancyView = null;
     this.freqAxisController = null;
     this.tooltipController = null;
     this.waterfallInput = null;

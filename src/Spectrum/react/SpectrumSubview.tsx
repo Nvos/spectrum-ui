@@ -12,6 +12,7 @@ type Props = {
 export const SpectrumSubview = ({ core, freqStart, freqEnd }: Props) => {
   const waterfallRef = useRef<HTMLCanvasElement>(null);
   const liveRef = useRef<HTMLCanvasElement>(null);
+  const occupancyRef = useRef<HTMLCanvasElement>(null);
   const freqAxisRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
 
@@ -20,6 +21,7 @@ export const SpectrumSubview = ({ core, freqStart, freqEnd }: Props) => {
       {
         waterfall: waterfallRef.current!,
         live: liveRef.current!,
+        occupancy: occupancyRef.current!,
         freqAxis: freqAxisRef.current!,
         tooltip: tooltipRef.current!,
       },
@@ -34,6 +36,9 @@ export const SpectrumSubview = ({ core, freqStart, freqEnd }: Props) => {
       <div className={styles.subviewLayout}>
         <div className={styles.subviewLiveRow}>
           <canvas className={styles.subviewLiveCanvas} ref={liveRef} />
+        </div>
+        <div className={styles.subviewOccupancyRow}>
+          <canvas className={styles.subviewOccupancyCanvas} ref={occupancyRef} />
         </div>
         <div className={styles.subviewFreqAxisRow}>
           <div className={styles.subviewFreqAxisContainer} ref={freqAxisRef} />

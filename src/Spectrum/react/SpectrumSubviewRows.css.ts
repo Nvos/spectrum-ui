@@ -19,6 +19,17 @@ export const subviewLiveCanvas = style({
   height: "100%",
 });
 
+export const subviewOccupancyRow = style({
+  height: "0.75rem",
+  flexShrink: 0,
+});
+
+export const subviewOccupancyCanvas = style({
+  display: "block",
+  width: "100%",
+  height: "100%",
+});
+
 export const subviewFreqAxisRow = style({
   height: "1.75rem",
   flexShrink: 0,
