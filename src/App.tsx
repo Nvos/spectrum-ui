@@ -171,6 +171,7 @@ type SubviewDef = { id: number; freqStart: number; freqEnd: number };
 
 const AppInner = ({ store }: { store: SpectrumStore }) => {
   const [paramsForm, setParamsForm] = useState<SpectrumParams>(DEFAULT_PARAMS);
+  const [profileDrawerOpen, setProfileDrawerOpen] = useState(false);
   const [profileRanges, setProfileRanges] = useState<ProfileRange[]>([]);
   const profileRangesRef = useRef(profileRanges);
   profileRangesRef.current = profileRanges;
@@ -315,6 +316,13 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
           Re-hydrate
         </button>
         <div className={styles.separator} />
+        <button
+          onClick={() => setProfileDrawerOpen(true)}
+          className={profileRanges.length > 0 ? styles.button.active : styles.button.inactive}
+        >
+          Profiles {profileRanges.length > 0 ? `(${profileRanges.length})` : ""}
+        </button>
+        <div className={styles.separator} />
         <span className={styles.occLabel}>zoom</span>
         <input
           type="number"
@@ -386,13 +394,26 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
         </button>
       </div>
       <div className={styles.spectrumContainer}>{core && <Spectrum core={core} profileRanges={profileRanges} />}</div>
-      {config && (
-        <ProfilePanel
-          ranges={profileRanges}
-          freqStartMHz={config.params.freqStart / 1000}
-          freqEndMHz={(config.params.freqStart + config.params.binCount * config.params.resolution) / 1000}
-          onChange={setProfileRanges}
-        />
+      {profileDrawerOpen && (
+        <>
+          <div className={styles.drawerOverlay} onClick={() => setProfileDrawerOpen(false)} />
+          <div className={styles.drawer}>
+            <div className={styles.drawerHeader}>
+              <span className={styles.drawerTitle}>Profile Ranges</span>
+              <button className={styles.button.inactive} onClick={() => setProfileDrawerOpen(false)}>✕</button>
+            </div>
+            <div className={styles.drawerBody}>
+              {config && (
+                <ProfilePanel
+                  ranges={profileRanges}
+                  freqStartMHz={config.params.freqStart / 1000}
+                  freqEndMHz={(config.params.freqStart + config.params.binCount * config.params.resolution) / 1000}
+                  onChange={setProfileRanges}
+                />
+              )}
+            </div>
+          </div>
+        </>
       )}
       {core && subviewDefs.length > 0 && (
         <div className={styles.subviewsRow}>

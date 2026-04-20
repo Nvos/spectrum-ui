@@ -102,6 +102,48 @@ export const subviewHeader = style({
   flexShrink: 0,
 });
 
+export const drawerOverlay = style({
+  position: "fixed",
+  inset: 0,
+  zIndex: 40,
+  background: "rgba(0,0,0,0.4)",
+});
+
+export const drawer = style({
+  position: "fixed",
+  top: 0,
+  right: 0,
+  bottom: 0,
+  zIndex: 50,
+  width: "22rem",
+  backgroundColor: background[900],
+  borderLeft: "1px solid rgba(255,255,255,0.08)",
+  display: "flex",
+  flexDirection: "column",
+});
+
+export const drawerHeader = style({
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  padding: "0.75rem 1rem",
+  borderBottom: "1px solid rgba(255,255,255,0.08)",
+  flexShrink: 0,
+});
+
+export const drawerTitle = style({
+  fontSize: "0.8125rem",
+  fontFamily: font.mono,
+  color: "rgba(255,255,255,0.6)",
+  fontWeight: 600,
+});
+
+export const drawerBody = style({
+  flex: 1,
+  overflowY: "auto",
+  padding: "0.75rem 1rem",
+});
+
 export const numberInput = style({
   width: "5rem",
   padding: "0.25rem 0.5rem",
