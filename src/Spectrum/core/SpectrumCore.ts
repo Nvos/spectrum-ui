@@ -98,7 +98,7 @@ export class SpectrumCore {
   private waterfallInput: InputHandler | null = null;
   private liveInput: InputHandler | null = null;
   private rafHandle: number | null = null;
-  private unsubscribeBuffer: (() => void) | null = null;
+  private lastProcessedCount = 0;
   private subviews: SpectrumSubviewCore[] = [];
 
   constructor(frameBuffer: FrameBuffer, options: SpectrumCoreOptions) {
@@ -125,6 +125,25 @@ export class SpectrumCore {
     this.onReset = options.onReset;
   }
 
+  private processNewRows() {
+    const { spectrum, annotations } = this.frameBuffer;
+    const newCount = spectrum.totalWritten - this.lastProcessedCount;
+    if (newCount === 0) return;
+    for (let i = 0; i < newCount; i++) {
+      const row = (this.lastProcessedCount + i) % this.rowCount;
+      const specRow = spectrum.rowView(row);
+      const annRow = annotations.rowView(row);
+      this.maxHold!.push(specRow);
+      this.avgLayer!.push(specRow, spectrum.timestamps[row]);
+      this.occupancyRenderer!.push(specRow);
+      this.waterfallRenderer!.push(row, specRow);
+      this.annotationRenderer!.push(row, annRow);
+      this.timeLabelsController!.push(spectrum.timestamps[row]);
+      for (const sv of this.subviews) sv.push(row, specRow);
+    }
+    this.lastProcessedCount = spectrum.totalWritten;
+  }
+
   // oxlint-disable-next-line max-lines-per-function
   mount(refs: SpectrumMountRefs) {
     const { frameBuffer, rowCount, binCount, initialData, displayMin, displayMax, colormap, layerVisibility, avgTau, occupancyThreshold } = this;
@@ -140,13 +159,13 @@ export class SpectrumCore {
     waterfallRenderer.mount(refs.waterfall, viewport);
     liveRenderer.mount(refs.live, viewport);
 
-    const maxHold = new MaxHoldLayer(binCount, buffer, initialData?.maxHold);
+    const maxHold = new MaxHoldLayer(binCount, initialData?.maxHold);
     liveRenderer.setLayer("max", maxHold.data, "rgba(255, 80, 80, 0.85)");
 
     const avgLayer = new AverageLayer(binCount, buffer, avgTau);
     liveRenderer.setLayer("avg", avgLayer.data, "rgba(250, 190, 40, 0.85)");
 
-    const occupancyRenderer = new OccupancyRenderer(binCount, buffer, occupancyThreshold, initialData?.occupancy);
+    const occupancyRenderer = new OccupancyRenderer(binCount, occupancyThreshold, initialData?.occupancy);
     occupancyRenderer.mount(refs.occupancy, viewport);
 
     const annotationRenderer = new AnnotationRenderer(annotationBuffer, rowCount, binCount, layerVisibility.annotations);
@@ -189,6 +208,8 @@ export class SpectrumCore {
     subviewHighlightController.mount(refs.subviewHighlight);
 
     const renderAll = () => {
+      this.processNewRows();
+      tooltipController.refresh();
       freqAxisController.update(viewport.start, viewport.end);
       subviewHighlightController.update(viewport.start, viewport.end);
       waterfallRenderer.render();
@@ -205,12 +226,8 @@ export class SpectrumCore {
     this.waterfallInput = new InputHandler(refs.waterfall, viewport, renderAll);
     this.liveInput = new InputHandler(refs.live, viewport, renderAll);
 
-    this.unsubscribeBuffer = buffer.subscribe((writtenRow) => {
-      waterfallRenderer.push(writtenRow);
-      for (const sv of this.subviews) sv.push(writtenRow);
-      scheduleRender();
-      tooltipController.refresh();
-    });
+    this.lastProcessedCount = buffer.totalWritten;
+    this.frameBuffer.onPush = scheduleRender;
 
     this.waterfallRenderer = waterfallRenderer;
     this.liveRenderer = liveRenderer;
@@ -229,11 +246,7 @@ export class SpectrumCore {
 
   destroy() {
     if (this.rafHandle !== null) cancelAnimationFrame(this.rafHandle);
-    this.unsubscribeBuffer?.();
-    this.annotationRenderer?.destroy();
-    this.maxHold?.destroy();
-    this.avgLayer?.destroy();
-    this.occupancyRenderer?.destroy();
+    this.frameBuffer.onPush = null;
     this.waterfallRenderer?.destroy();
     this.liveRenderer?.destroy();
     this.waterfallInput?.destroy();
@@ -261,7 +274,6 @@ export class SpectrumCore {
     this.waterfallInput = null;
     this.liveInput = null;
     this.rafHandle = null;
-    this.unsubscribeBuffer = null;
     this.maxSnapshotData = null;
     for (const sv of this.subviews) sv.destroy();
     this.subviews = [];

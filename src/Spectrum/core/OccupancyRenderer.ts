@@ -1,5 +1,4 @@
 import { resizeCanvasToDisplaySize } from "twgl.js";
-import type { RingBuffer } from "./RingBuffer";
 import type { Viewport } from "./Viewport";
 
 export class OccupancyRenderer {
@@ -8,7 +7,6 @@ export class OccupancyRenderer {
   private counts: Uint32Array;
   private total = 0;
   private readonly binCount: number;
-  private unsubscribeBuffer: () => void;
 
   private canvas!: HTMLCanvasElement;
   private ctx!: CanvasRenderingContext2D;
@@ -16,7 +14,6 @@ export class OccupancyRenderer {
 
   constructor(
     binCount: number,
-    buffer: RingBuffer,
     threshold: number,
     initial?: { counts: Uint32Array; total: number; threshold: number },
   ) {
@@ -31,14 +28,14 @@ export class OccupancyRenderer {
         this.data[b] = this.counts[b] / this.total;
       }
     }
-    this.unsubscribeBuffer = buffer.subscribe((writtenRow) => {
-      const offset = writtenRow * this.binCount;
-      this.total++;
-      for (let b = 0; b < this.binCount; b++) {
-        if (buffer.data[offset + b] > this.threshold) this.counts[b]++;
-        this.data[b] = this.counts[b] / this.total;
-      }
-    });
+  }
+
+  push(row: Int8Array) {
+    this.total++;
+    for (let b = 0; b < this.binCount; b++) {
+      if (row[b] > this.threshold) this.counts[b]++;
+      this.data[b] = this.counts[b] / this.total;
+    }
   }
 
   mount(canvas: HTMLCanvasElement, viewport: Viewport) {
@@ -81,9 +78,5 @@ export class OccupancyRenderer {
     this.counts.fill(0);
     this.total = 0;
     this.data.fill(0);
-  }
-
-  destroy() {
-    this.unsubscribeBuffer();
   }
 }

@@ -1,5 +1,3 @@
-type Subscriber = (writtenRow: number) => void;
-
 export type InitialRows = {
   rows: Int8Array;
   count: number;
@@ -12,7 +10,7 @@ export class RingBuffer {
   data: Int8Array;
   timestamps: Float64Array;
   writeRow: number = 0;
-  private subscribers = new Set<Subscriber>();
+  totalWritten: number = 0;
 
   constructor(rowCount: number, binCount: number, initial?: InitialRows, emptyFill = 0) {
     this.rowCount = rowCount;
@@ -27,21 +25,18 @@ export class RingBuffer {
         this.timestamps[i] = initial.timestamps[i];
       }
       this.writeRow = count % rowCount;
+      this.totalWritten = count;
     }
   }
 
   push(row: Int8Array, timestampMs: number) {
-    const uploadRow = this.writeRow;
-
     this.data.set(row, this.writeRow * this.binCount);
-    this.timestamps[uploadRow] = timestampMs;
+    this.timestamps[this.writeRow] = timestampMs;
     this.writeRow = (this.writeRow + 1) % this.rowCount;
-
-    this.subscribers.forEach((subscriber) => subscriber(uploadRow));
+    this.totalWritten++;
   }
 
-  subscribe(subscriber: Subscriber) {
-    this.subscribers.add(subscriber);
-    return () => this.subscribers.delete(subscriber);
+  rowView(row: number): Int8Array {
+    return this.data.subarray(row * this.binCount, (row + 1) * this.binCount);
   }
 }

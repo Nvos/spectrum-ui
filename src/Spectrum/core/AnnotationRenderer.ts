@@ -30,7 +30,6 @@ export class AnnotationRenderer {
   private binCount: number;
   readonly rowActivity: Uint8Array;
   private visible: boolean;
-  private unsubscribeBuffer: () => void;
   private cachedBlocks: Block[] = [];
   private cachedWriteRow = -1;
 
@@ -54,25 +53,20 @@ export class AnnotationRenderer {
     this.cachedBlocks = this.computeBlocksFull(annBuf.writeRow);
     this.cachedWriteRow = annBuf.writeRow;
 
-    this.unsubscribeBuffer = annBuf.subscribe((uploadRow) => {
-      const offset = uploadRow * binCount;
-      let active = false;
-      for (let b = 0; b < binCount; b++) {
-        if (annBuf.data[offset + b] !== POWER_NO_READING) {
-          active = true;
-          break;
-        }
-      }
-      this.rowActivity[uploadRow] = active ? 1 : 0;
-
-      const writeRow = this.annBuf.writeRow;
-      this.cachedBlocks = this.computeBlocks(writeRow);
-      this.cachedWriteRow = writeRow;
-    });
   }
 
-  destroy() {
-    this.unsubscribeBuffer();
+  push(writtenRow: number, row: Int8Array) {
+    let active = false;
+    for (let b = 0; b < this.binCount; b++) {
+      if (row[b] !== POWER_NO_READING) {
+        active = true;
+        break;
+      }
+    }
+    this.rowActivity[writtenRow] = active ? 1 : 0;
+    const writeRow = (writtenRow + 1) % this.rowCount;
+    this.cachedBlocks = this.computeBlocks(writeRow);
+    this.cachedWriteRow = writeRow;
   }
 
   mount(canvas: HTMLCanvasElement, viewport: Viewport) {

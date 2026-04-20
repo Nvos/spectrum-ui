@@ -164,11 +164,11 @@ export class SpectrumSubviewCore implements SubviewHandle {
     this.waterfallRenderer.render();
     this.liveRenderer.render();
     this.occupancyView?.render();
+    this.tooltipController?.refresh();
   }
 
-  push(writtenRow: number) {
-    this.waterfallRenderer?.push(writtenRow);
-    this.tooltipController?.refresh();
+  push(writtenRow: number, specRow: Int8Array) {
+    this.waterfallRenderer?.push(writtenRow, specRow);
   }
 
   updateDisplayRange(min: number, max: number) {

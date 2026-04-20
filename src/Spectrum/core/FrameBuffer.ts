@@ -5,6 +5,7 @@ import type { InitialRows } from "./RingBuffer";
 export class FrameBuffer {
   readonly spectrum: RingBuffer;
   readonly annotations: RingBuffer;
+  onPush: (() => void) | null = null;
 
   constructor(
     rowCount: number,
@@ -19,5 +20,6 @@ export class FrameBuffer {
   push(specRow: Int8Array, annRow: Int8Array, timestampMs: number) {
     this.spectrum.push(specRow, timestampMs);
     this.annotations.push(annRow, timestampMs);
+    this.onPush?.();
   }
 }

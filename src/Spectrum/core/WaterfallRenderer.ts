@@ -238,21 +238,10 @@ export class WaterfallRenderer {
     drawBufferInfo(this.ctx, this.bufferInfo, this.ctx.TRIANGLES);
   };
 
-  push(writtenRow: number) {
+  push(writtenRow: number, row: Int8Array) {
     const gl = this.ctx;
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
-    gl.texSubImage2D(
-      gl.TEXTURE_2D,
-      0,
-      0,
-      writtenRow,
-      this.binCount,
-      1,
-      gl.RED,
-      gl.BYTE,
-      this.ringBuffer.data,
-      writtenRow * this.binCount,
-    );
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, writtenRow, this.binCount, 1, gl.RED, gl.BYTE, row);
   }
 
   updateColormap(lut: Uint8Array) {

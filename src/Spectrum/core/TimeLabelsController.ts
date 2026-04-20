@@ -44,7 +44,6 @@ export class TimeLabelsController {
   private totalPushed = 0;
   private rowInterval = 1;
   private container: HTMLElement | null = null;
-  private unsubscribe: (() => void) | null = null;
   private ro: ResizeObserver | null = null;
 
   constructor(buffer: RingBuffer, rowCount: number) {
@@ -57,17 +56,6 @@ export class TimeLabelsController {
     this.rowInterval = calcRowInterval(container.clientHeight, this.rowCount);
 
     this.replayLabels();
-
-    this.unsubscribe = this.buffer.subscribe((writtenRow) => {
-      const newestTs = this.buffer.timestamps[writtenRow];
-
-      if (this.totalPushed > 0 && this.totalPushed % this.rowInterval === 0) {
-        this.labels.push(createLabel(container, newestTs, this.totalPushed));
-      }
-
-      this.totalPushed++;
-      this.updatePositions(newestTs);
-    });
 
     this.ro = new ResizeObserver((entries) => {
       const height = entries[0]?.contentRect.height ?? container.clientHeight;
@@ -127,8 +115,17 @@ export class TimeLabelsController {
     }
   }
 
+  push(timestampMs: number) {
+    const container = this.container;
+    if (!container) return;
+    if (this.totalPushed > 0 && this.totalPushed % this.rowInterval === 0) {
+      this.labels.push(createLabel(container, timestampMs, this.totalPushed));
+    }
+    this.totalPushed++;
+    this.updatePositions(timestampMs);
+  }
+
   destroy() {
-    this.unsubscribe?.();
     this.ro?.disconnect();
     for (const label of this.labels) label.el.remove();
     this.labels = [];
