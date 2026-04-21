@@ -1,6 +1,6 @@
 import { buildLUT, COLORMAPS } from "./colormaps";
 import { AnnotationRenderer } from "./AnnotationRenderer";
-import { ProfileDragHandler } from "./ProfileDragHandler";
+import { ProfileRangeHandler } from "./ProfileRangeHandler";
 import type { ProfileRange, NormalizedRange } from "./ProfileTypes";
 import { AverageLayer } from "./AverageLayer";
 import { ColormapLegendController } from "./ColormapLegendController";
@@ -102,7 +102,7 @@ export class SpectrumCore {
   private liveInput: InputHandler | null = null;
   private rafHandle: number | null = null;
   private scheduleRender: (() => void) | null = null;
-  private profileDragHandler: ProfileDragHandler | null = null;
+  private profileDragHandler: ProfileRangeHandler | null = null;
   private profileRangesCache: ProfileRange[] = [];
   private onProfileRangeChange: ((id: string, startMHz: number, endMHz: number) => void) | undefined;
   private lastProcessedCount = 0;
@@ -233,7 +233,7 @@ export class SpectrumCore {
 
     this.scheduleRender = scheduleRender;
 
-    this.profileDragHandler = new ProfileDragHandler(
+    this.profileDragHandler = new ProfileRangeHandler(
       refs.live,
       viewport,
       (id, normStart, normEnd) => {

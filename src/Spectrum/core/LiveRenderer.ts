@@ -272,21 +272,29 @@ export class LiveRenderer {
       }
     }
 
-    // --- Profile drag handles + labels (topmost) ---
+    // --- Profile handles + labels (topmost) ---
     if (this.profileRanges.length > 0) {
       const HANDLE_W = 4;
       const HANDLE_H = 20;
+      const STRIP_H = 14;
       ctx.setLineDash([]);
-      ctx.fillStyle = "rgba(59, 130, 246, 0.85)";
       for (const r of this.profileRanges) {
         const xL = ((r.start - start) / visibleSpan) * width;
         const xR = ((r.end - start) / visibleSpan) * width;
+
+        // Move strip across top of range
+        ctx.fillStyle = "rgba(59, 130, 246, 0.22)";
+        ctx.fillRect(xL, 0, xR - xL, STRIP_H);
+
+        // Edge handles
+        ctx.fillStyle = "rgba(59, 130, 246, 0.85)";
         ctx.fillRect(xL - HANDLE_W / 2, height / 2 - HANDLE_H / 2, HANDLE_W, HANDLE_H);
         ctx.fillRect(xR - HANDLE_W / 2, height / 2 - HANDLE_H / 2, HANDLE_W, HANDLE_H);
-        const label = `#${r.numericId}`;
+
+        // Label
         ctx.font = "bold 11px monospace";
         ctx.fillStyle = "rgba(59, 130, 246, 0.9)";
-        ctx.fillText(label, xL + HANDLE_W / 2 + 3, 14);
+        ctx.fillText(`#${r.numericId}`, xL + HANDLE_W / 2 + 3, 11);
       }
     }
   };
