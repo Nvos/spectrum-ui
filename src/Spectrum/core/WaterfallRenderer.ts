@@ -186,7 +186,9 @@ export class WaterfallRenderer {
       type: gl.BYTE,
       minMag: gl.NEAREST,
       wrap: gl.CLAMP_TO_EDGE,
-      src: this.ringBuffer.data,
+      src: this.ringBuffer.data.length === this.binCount * this.rowCount
+        ? this.ringBuffer.data
+        : this.buildInitialTextureData(),
     });
 
     this.lutTexture = createTexture(gl, {
@@ -218,7 +220,7 @@ export class WaterfallRenderer {
     // geometry copy takes over so there is no visual jump.
     // Snap to pixel grid to prevent sub-pixel drift from causing rows to
     // alternate between 1px and 2px tall as the geometry moves each tick.
-    const writeRow = this.ringBuffer.writeRow;
+    const writeRow = this.ringBuffer.writeRow % this.rowCount;
     const rawTranslation = 2.0 - writeRow * (2.0 / this.rowCount);
     const pixelSize = 2.0 / this.ctx.canvas.height;
     const uTimeTranslation = Math.round(rawTranslation / pixelSize) * pixelSize;
@@ -238,10 +240,55 @@ export class WaterfallRenderer {
     drawBufferInfo(this.ctx, this.bufferInfo, this.ctx.TRIANGLES);
   };
 
+  setRowCount(n: number) {
+    if (n === this.rowCount || !this.ctx) return;
+    this.rowCount = n;
+    const gl = this.ctx;
+
+    const geo = buildRowGeometry(n);
+    this.bufferInfo = createBufferInfoFromArrays(gl, {
+      aPosition: { numComponents: 2, data: geo.positions },
+      aTexCoord: { numComponents: 2, data: geo.texCoords },
+      indices: geo.indices,
+    });
+
+    gl.deleteTexture(this.texture);
+    this.texture = createTexture(gl, {
+      width: this.binCount,
+      height: n,
+      format: gl.RED,
+      internalFormat: gl.R8_SNORM,
+      type: gl.BYTE,
+      minMag: gl.NEAREST,
+      wrap: gl.CLAMP_TO_EDGE,
+      src: this.buildInitialTextureData(),
+    });
+
+    this.render();
+  }
+
+  private buildInitialTextureData(): Int8Array {
+    const D = this.rowCount;
+    const N = this.ringBuffer.rowCount;
+    const T = this.ringBuffer.totalWritten;
+    const data = new Int8Array(this.binCount * D).fill(-128);
+    const rowsToCopy = Math.min(D, T);
+    for (let i = 0; i < rowsToCopy; i++) {
+      const writtenRow = T - rowsToCopy + i;
+      const bufRow = writtenRow % N;
+      const texRow = writtenRow % D;
+      data.set(
+        this.ringBuffer.data.subarray(bufRow * this.binCount, (bufRow + 1) * this.binCount),
+        texRow * this.binCount,
+      );
+    }
+    return data;
+  }
+
   push(writtenRow: number, row: Int8Array) {
     const gl = this.ctx;
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, writtenRow, this.binCount, 1, gl.RED, gl.BYTE, row);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, writtenRow % this.rowCount, this.binCount, 1, gl.RED, gl.BYTE, row);
   }
 
   updateColormap(lut: Uint8Array) {

@@ -48,6 +48,7 @@ export class SpectrumSubviewCore implements SubviewHandle {
   private waterfallInput: InputHandler | null = null;
   private liveInput: InputHandler | null = null;
   private viewport: Viewport | null = null;
+  private resizeObserver: ResizeObserver | null = null;
 
   private readonly buffer: RingBuffer;
   private readonly rowCount: number;
@@ -97,12 +98,21 @@ export class SpectrumSubviewCore implements SubviewHandle {
     const viewport = new Viewport(binCount, refs.waterfall, 12, normalizedStart, normalizedEnd);
     viewport.panTo(normalizedStart, normalizedEnd);
 
-    const waterfallRenderer = new WaterfallRenderer(rowCount, binCount, buffer, {
+    const initialH = refs.waterfall.getBoundingClientRect().height;
+    const initialRowCount = Math.max(10, Math.floor(initialH / 2));
+
+    const waterfallRenderer = new WaterfallRenderer(initialRowCount, binCount, buffer, {
       displayMin: settings.displayMin,
       displayMax: settings.displayMax,
       colormap: settings.colormap,
     });
     waterfallRenderer.mount(refs.waterfall, viewport);
+
+    this.resizeObserver = new ResizeObserver((entries) => {
+      const h = entries[0].contentRect.height;
+      waterfallRenderer.setRowCount(Math.max(10, Math.floor(h / 2)));
+    });
+    this.resizeObserver.observe(refs.waterfall);
 
     const liveRenderer = new LiveRenderer(binCount, buffer, {
       displayMin: settings.displayMin,
@@ -188,6 +198,8 @@ export class SpectrumSubviewCore implements SubviewHandle {
   }
 
   destroy() {
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
     this.waterfallInput?.destroy();
     this.liveInput?.destroy();
     this.tooltipController?.destroy();
