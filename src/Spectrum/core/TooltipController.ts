@@ -1,3 +1,4 @@
+import { computePosition, flip, offset, shift } from "@floating-ui/dom";
 import * as styles from "./styles.css";
 import type { AverageLayer } from "./AverageLayer";
 import type { MaxHoldLayer } from "./MaxHoldLayer";
@@ -129,8 +130,21 @@ export class TooltipController {
           cell("pwr", `${activeRange.powerDbm} dBm`)
         : "");
 
-    tt.style.left = `${pos.clientX + 8}px`;
-    tt.style.top = `${pos.clientY - 8}px`;
+    const virtualEl = {
+      getBoundingClientRect: () => ({
+        x: pos.clientX, y: pos.clientY,
+        width: 0, height: 0,
+        top: pos.clientY, bottom: pos.clientY,
+        left: pos.clientX, right: pos.clientX,
+      }),
+    };
+    computePosition(virtualEl, tt, {
+      placement: "right-start",
+      middleware: [offset({ mainAxis: 8, crossAxis: -8 }), flip(), shift({ padding: 8 })],
+    }).then(({ x, y }) => {
+      tt.style.left = `${x}px`;
+      tt.style.top = `${y}px`;
+    });
   }
 
   private onLiveMouseMove = (e: MouseEvent) => {
