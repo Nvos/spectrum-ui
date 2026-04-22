@@ -147,7 +147,7 @@ export class SpectrumCore {
       this.waterfallRenderer!.push(row, specRow);
       this.annotationRenderer!.push(row, annRow);
       this.timeLabelsController!.push(spectrum.timestamps[row]);
-      for (const sv of this.subviews) sv.push(row, specRow);
+      for (const sv of this.subviews) sv.push(row, specRow, annRow);
     }
     this.lastProcessedCount = spectrum.totalWritten;
   }
@@ -343,6 +343,7 @@ export class SpectrumCore {
     const normalizedEnd = (subFreqEnd - this.freqStart) / globalSpan;
     const subview = new SpectrumSubviewCore(
       this.frameBuffer.spectrum,
+      this.frameBuffer.annotations,
       this.rowCount,
       this.binCount,
       subFreqStart / 1000,

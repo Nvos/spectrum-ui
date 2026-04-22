@@ -27,6 +27,7 @@ export class AnnotationRenderer {
   private viewport!: Viewport;
   private annBuf: RingBuffer;
   private rowCount: number;
+  private displayRowCount: number;
   private binCount: number;
   readonly rowActivity: Uint8Array;
   private visible: boolean;
@@ -37,6 +38,7 @@ export class AnnotationRenderer {
   constructor(annBuf: RingBuffer, rowCount: number, binCount: number, visible: boolean) {
     this.annBuf = annBuf;
     this.rowCount = rowCount;
+    this.displayRowCount = rowCount;
     this.binCount = binCount;
     this.rowActivity = new Uint8Array(rowCount);
     this.visible = visible;
@@ -99,6 +101,13 @@ export class AnnotationRenderer {
     this.visible = v;
   }
 
+  setDisplayRowCount(n: number) {
+    if (n === this.displayRowCount) return;
+    this.displayRowCount = n;
+    this.cachedBlocks = this.computeBlocksFull(this.annBuf.writeRow);
+    this.cachedWriteRow = this.annBuf.writeRow;
+  }
+
   setProfileRanges(ranges: { start: number; end: number }[]) {
     this.profileRanges = ranges;
   }
@@ -106,12 +115,12 @@ export class AnnotationRenderer {
   // Full scan: iterate all rowCount rows newest→oldest, merge contiguous same-extent groups.
   // Used for initialization and when more than one row was written since last render.
   private computeBlocksFull(writeRow: number): Block[] {
-    const { rowCount } = this;
+    const { rowCount, displayRowCount } = this;
     type OpenBlock = Block & { curRowIdx: number };
     const blocks: Block[] = [];
     let open: OpenBlock[] = [];
 
-    for (let di = 0; di < rowCount; di++) {
+    for (let di = 0; di < displayRowCount; di++) {
       const rowIdx = (writeRow - 1 - di + rowCount * 2) % rowCount;
       const groups = this.rowActivity[rowIdx] ? this.collectGroups(rowIdx) : [];
 
@@ -232,15 +241,15 @@ export class AnnotationRenderer {
   // Between writes (e.g. zoom/pan renders) the ring-buffer contents are
   // unchanged so the cached result is still valid.
   private computeBlocks(writeRow: number): Block[] {
-    const { rowCount } = this;
+    const { rowCount, displayRowCount } = this;
     const delta = (writeRow - this.cachedWriteRow + rowCount * 2) % rowCount;
-    return delta === 1
+    return delta === 1 && displayRowCount === rowCount
       ? this.computeBlocksIncremental(writeRow)
       : this.computeBlocksFull(writeRow);
   }
 
   render = () => {
-    const { canvas, ctx, viewport, rowCount, binCount } = this;
+    const { canvas, ctx, viewport, binCount } = this;
     if (!canvas) return;
 
     resizeCanvasToDisplaySize(canvas, window.devicePixelRatio || 1);
@@ -271,17 +280,18 @@ export class AnnotationRenderer {
 
     if (!this.visible) return;
 
-    const writeRow = this.annBuf.writeRow;
+    const { displayRowCount } = this;
 
-    // Same pixel-snapped Y calculation as WaterfallRenderer
-    const pixelSize = 2.0 / height;
-    const rawTranslation = 2.0 - writeRow * (2.0 / rowCount);
-    const uT = Math.round(rawTranslation / pixelSize) * pixelSize;
-    const rowH = 2.0 / rowCount;
-
-    const clipToScreenY = (clipY: number) => ((1 - clipY) / 2) * height;
-    const rowTopY = (i: number) => clipToScreenY(-1 + (i + 1) * rowH + uT);
-    const rowBotY = (i: number) => clipToScreenY(-1 + i * rowH + uT);
+    // Age-based screen Y: how many rows a ring-buffer row is from the newest visible row
+    // determines its Y position directly, without any clip-space or two-copy arithmetic.
+    // This is correct for both main view (displayRowCount === rowCount) and subviews
+    // (displayRowCount !== rowCount), and avoids the non-monotonic (writeRow % N) % D
+    // mapping that caused incorrect positions and hidden blocks in subviews.
+    const T = this.annBuf.totalWritten;
+    const N = this.rowCount;
+    const rowAge = (r: number) => (T - 1 - r + N * 2) % N;
+    const rowTopY = (r: number) => Math.round(rowAge(r) * height / displayRowCount);
+    const rowBotY = (r: number) => Math.round((rowAge(r) + 1) * height / displayRowCount);
 
     const binToX = (bin: number) =>
       ((bin / binCount - start) / (end - start)) * width;
@@ -290,40 +300,18 @@ export class AnnotationRenderer {
 
     if (completedBlocks.length === 0) return;
 
-    // Resolve block geometry into screen coordinates, handling the two-copy ring-buffer
-    // layout and cross-wrap case. Calls fn(xL, xR, yTop, yBot) for each visible rect.
+    // Age-based Y is always monotonic (topRowIdx newest → smallest Y, botRowIdx oldest →
+    // largest Y), so there is no cross-wrap case and no two-copy offset needed.
     const forEachBlockRect = (
       block: Block,
       fn: (xL: number, xR: number, yTop: number, yBot: number) => void,
     ) => {
       const xL = binToX(block.startBin);
       const xR = binToX(block.endBin);
-
-      // Full-ring block: topRowIdx (newest) and botRowIdx (oldest) are ring-adjacent,
-      // so both rowTopY(topRowIdx) and rowBotY(botRowIdx) land at the same seam Y ≈ 0.
-      // The two-copy guard would filter both copies out, making the block invisible.
-      if ((block.topRowIdx + 1) % rowCount === block.botRowIdx) {
-        fn(xL, xR, 0, height);
-        return;
-      }
-
-      const yTopF = rowTopY(block.topRowIdx);
-      const yBotF = rowBotY(block.botRowIdx);
-
-      if (yBotF >= yTopF) {
-        for (const yOffset of [0, height]) {
-          if (yOffset === height && yTopF > -1) continue;
-          if (yOffset === 0 && yBotF < 1) continue;
-          const yTop = yTopF + yOffset;
-          const yBot = yBotF + yOffset;
-          if (yTop > height + 2 || yBot < -2) continue;
-          fn(xL, xR, yTop, yBot);
-        }
-      } else {
-        const yTop = yTopF;
-        const yBot = yBotF + height;
-        if (yTop <= height + 2 && yBot >= -2) fn(xL, xR, yTop, yBot);
-      }
+      const yTop = rowTopY(block.topRowIdx);
+      const yBot = rowBotY(block.botRowIdx);
+      if (yTop > height + 2 || yBot < -2) return;
+      fn(xL, xR, yTop, yBot);
     };
 
     // Dashed border: dark outline pass then magenta on top.

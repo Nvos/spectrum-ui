@@ -136,6 +136,12 @@ export class WaterfallRenderer {
   ringBuffer: RingBuffer;
   viewport!: Viewport;
 
+  // Monotonically-increasing push counter, independent of the parent ring
+  // buffer's own rowCount. This keeps texture write positions and the render
+  // translation in sync even when the parent ring buffer wraps at a size that
+  // is not a multiple of this renderer's rowCount.
+  private pushedCount: number = 0;
+
   private powerMin: number;
   private displayMax: number;
   private currentLUT: Uint8Array;
@@ -178,6 +184,7 @@ export class WaterfallRenderer {
       indices: geo.indices,
     });
 
+    this.pushedCount = this.ringBuffer.totalWritten;
     this.texture = createTexture(gl, {
       width: this.binCount,
       height: this.rowCount,
@@ -220,7 +227,7 @@ export class WaterfallRenderer {
     // geometry copy takes over so there is no visual jump.
     // Snap to pixel grid to prevent sub-pixel drift from causing rows to
     // alternate between 1px and 2px tall as the geometry moves each tick.
-    const writeRow = this.ringBuffer.writeRow % this.rowCount;
+    const writeRow = this.pushedCount % this.rowCount;
     const rawTranslation = 2.0 - writeRow * (2.0 / this.rowCount);
     const pixelSize = 2.0 / this.ctx.canvas.height;
     const uTimeTranslation = Math.round(rawTranslation / pixelSize) * pixelSize;
@@ -252,6 +259,7 @@ export class WaterfallRenderer {
       indices: geo.indices,
     });
 
+    this.pushedCount = this.ringBuffer.totalWritten;
     gl.deleteTexture(this.texture);
     this.texture = createTexture(gl, {
       width: this.binCount,
@@ -285,10 +293,11 @@ export class WaterfallRenderer {
     return data;
   }
 
-  push(writtenRow: number, row: Int8Array) {
+  push(_writtenRow: number, row: Int8Array) {
     const gl = this.ctx;
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, writtenRow % this.rowCount, this.binCount, 1, gl.RED, gl.BYTE, row);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, this.pushedCount % this.rowCount, this.binCount, 1, gl.RED, gl.BYTE, row);
+    this.pushedCount++;
   }
 
   updateColormap(lut: Uint8Array) {

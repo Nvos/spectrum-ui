@@ -1,3 +1,4 @@
+import { AnnotationRenderer } from "./AnnotationRenderer";
 import { FrequencyAxisController } from "./FrequencyAxisController";
 import { InputHandler } from "./InputHandler";
 import { LiveRenderer } from "./LiveRenderer";
@@ -14,6 +15,7 @@ import type { LayerVisibility } from "./SpectrumCore";
 export type SubviewRefs = {
   waterfall: HTMLCanvasElement;
   live: HTMLCanvasElement;
+  annotation: HTMLCanvasElement;
   occupancy: HTMLCanvasElement;
   freqAxis: HTMLElement;
   powerAxis: HTMLDivElement;
@@ -41,6 +43,7 @@ type SubviewSettings = {
 export class SpectrumSubviewCore implements SubviewHandle {
   private waterfallRenderer: WaterfallRenderer | null = null;
   private liveRenderer: LiveRenderer | null = null;
+  private annotationRenderer: AnnotationRenderer | null = null;
   private occupancyView: OccupancyView | null = null;
   private freqAxisController: FrequencyAxisController | null = null;
   private powerAxisController: PowerAxisController | null = null;
@@ -51,6 +54,7 @@ export class SpectrumSubviewCore implements SubviewHandle {
   private resizeObserver: ResizeObserver | null = null;
 
   private readonly buffer: RingBuffer;
+  private readonly annotationBuffer: RingBuffer;
   private readonly rowCount: number;
   private readonly binCount: number;
   private readonly subFreqStartMHz: number;
@@ -65,6 +69,7 @@ export class SpectrumSubviewCore implements SubviewHandle {
 
   constructor(
     buffer: RingBuffer,
+    annotationBuffer: RingBuffer,
     rowCount: number,
     binCount: number,
     subFreqStartMHz: number,
@@ -78,6 +83,7 @@ export class SpectrumSubviewCore implements SubviewHandle {
     occupancyData: Float32Array,
   ) {
     this.buffer = buffer;
+    this.annotationBuffer = annotationBuffer;
     this.rowCount = rowCount;
     this.binCount = binCount;
     this.subFreqStartMHz = subFreqStartMHz;
@@ -92,7 +98,7 @@ export class SpectrumSubviewCore implements SubviewHandle {
   }
 
   mount(refs: SubviewRefs) {
-    const { buffer, rowCount, binCount, subFreqStartMHz, subFreqEndMHz,
+    const { buffer, annotationBuffer, rowCount, binCount, subFreqStartMHz, subFreqEndMHz,
       normalizedStart, normalizedEnd, settings, layers, avgLayer, maxHold } = this;
 
     const viewport = new Viewport(binCount, refs.waterfall, 12, normalizedStart, normalizedEnd);
@@ -110,7 +116,9 @@ export class SpectrumSubviewCore implements SubviewHandle {
 
     this.resizeObserver = new ResizeObserver((entries) => {
       const h = entries[0].contentRect.height;
-      waterfallRenderer.setRowCount(Math.max(10, Math.floor(h / 2)));
+      const n = Math.max(10, Math.floor(h / 2));
+      waterfallRenderer.setRowCount(n);
+      annotationRenderer.setDisplayRowCount(n);
     });
     this.resizeObserver.observe(refs.waterfall);
 
@@ -123,6 +131,10 @@ export class SpectrumSubviewCore implements SubviewHandle {
     for (const { id, data, color, mode } of layers) {
       liveRenderer.setLayer(id, data, color, mode);
     }
+
+    const annotationRenderer = new AnnotationRenderer(annotationBuffer, rowCount, binCount, settings.layerVisibility.annotations ?? true);
+    annotationRenderer.mount(refs.annotation, viewport);
+    liveRenderer.setAnnotation(annotationBuffer, annotationRenderer.rowActivity, rowCount);
 
     const freqAxisController = new FrequencyAxisController(subFreqStartMHz, subFreqEndMHz);
     freqAxisController.mount(refs.freqAxis);
@@ -159,6 +171,7 @@ export class SpectrumSubviewCore implements SubviewHandle {
 
     this.waterfallRenderer = waterfallRenderer;
     this.liveRenderer = liveRenderer;
+    this.annotationRenderer = annotationRenderer;
     this.occupancyView = occupancyView;
     this.freqAxisController = freqAxisController;
     this.powerAxisController = powerAxisController;
@@ -173,12 +186,14 @@ export class SpectrumSubviewCore implements SubviewHandle {
     this.freqAxisController.update(toLocal(this.viewport.start), toLocal(this.viewport.end));
     this.waterfallRenderer.render();
     this.liveRenderer.render();
+    this.annotationRenderer?.render();
     this.occupancyView?.render();
     this.tooltipController?.refresh();
   }
 
-  push(writtenRow: number, specRow: Int8Array) {
+  push(writtenRow: number, specRow: Int8Array, annRow: Int8Array) {
     this.waterfallRenderer?.push(writtenRow, specRow);
+    this.annotationRenderer?.push(writtenRow, annRow);
   }
 
   updateDisplayRange(min: number, max: number) {
@@ -195,6 +210,10 @@ export class SpectrumSubviewCore implements SubviewHandle {
 
   updateLayerVisibility(vis: Partial<LayerVisibility>) {
     this.liveRenderer?.updateLayerVisibility(vis);
+    if (vis.annotations !== undefined) {
+      this.annotationRenderer?.setVisible(vis.annotations);
+      this.annotationRenderer?.render();
+    }
   }
 
   destroy() {
@@ -205,6 +224,7 @@ export class SpectrumSubviewCore implements SubviewHandle {
     this.tooltipController?.destroy();
     this.waterfallRenderer?.destroy();
     this.liveRenderer?.destroy();
+    this.annotationRenderer = null;
     this.occupancyView?.destroy();
     this.freqAxisController?.destroy();
     this.powerAxisController?.destroy();

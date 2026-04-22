@@ -11,6 +11,7 @@ type Props = {
 
 export const SpectrumSubview = ({ core, freqStart, freqEnd }: Props) => {
   const waterfallRef = useRef<HTMLCanvasElement>(null);
+  const annotationRef = useRef<HTMLCanvasElement>(null);
   const liveRef = useRef<HTMLCanvasElement>(null);
   const occupancyRef = useRef<HTMLCanvasElement>(null);
   const freqAxisRef = useRef<HTMLDivElement>(null);
@@ -21,6 +22,7 @@ export const SpectrumSubview = ({ core, freqStart, freqEnd }: Props) => {
     const handle = core.addSubview(
       {
         waterfall: waterfallRef.current!,
+        annotation: annotationRef.current!,
         live: liveRef.current!,
         occupancy: occupancyRef.current!,
         freqAxis: freqAxisRef.current!,
@@ -52,6 +54,7 @@ export const SpectrumSubview = ({ core, freqStart, freqEnd }: Props) => {
           <div className={styles.subviewWaterfallLeft} />
           <div className={styles.subviewWaterfallContainer}>
             <canvas className={styles.subviewWaterfallCanvas} ref={waterfallRef} />
+            <canvas className={styles.subviewAnnotationCanvas} ref={annotationRef} />
           </div>
         </div>
       </div>

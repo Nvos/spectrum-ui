@@ -86,3 +86,11 @@ export const subviewWaterfallCanvas = style({
   width: "100%",
   height: "100%",
 });
+
+export const subviewAnnotationCanvas = style({
+  position: "absolute",
+  inset: 0,
+  width: "100%",
+  height: "100%",
+  pointerEvents: "none",
+});
