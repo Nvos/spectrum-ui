@@ -178,6 +178,8 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
   const [subviewDefs, setSubviewDefs] = useState<SubviewDef[]>([]);
   const [subviewForm, setSubviewForm] = useState({ freqStart: 96_000, freqEnd: 104_000 });
   const nextSubviewId = useRef(0);
+  const [subviewFlexMap, setSubviewFlexMap] = useState<Record<number, number>>({});
+  const subviewsRowRef = useRef<HTMLDivElement>(null);
 
   const [config, setConfig] = useState<SpectrumConfig | null>(() => {
     const initialData = decodeHydration(generateHydrationPayload());
@@ -235,6 +237,62 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
       })),
     );
   }, [subviewDefs, core, config]);
+
+  // Keep flex map in sync with subviewDefs: new ids get the average flex of existing ones
+  // so a freshly added subview starts at equal share; removed ids are dropped.
+  useEffect(() => {
+    setSubviewFlexMap(prev => {
+      const vals = Object.values(prev);
+      const avg = vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : 1;
+      const next: Record<number, number> = {};
+      for (const def of subviewDefs) next[def.id] = prev[def.id] ?? avg;
+      return next;
+    });
+  }, [subviewDefs]);
+
+  const HANDLE_WIDTH_PX = 10;
+  const MIN_SUBVIEW_WIDTH_PX = 288; // 18rem
+
+  const handleResizePointerDown = (e: React.PointerEvent<HTMLDivElement>, leftIdx: number) => {
+    e.preventDefault();
+    const handle = e.currentTarget;
+    handle.setPointerCapture(e.pointerId);
+    document.body.style.userSelect = "none";
+
+    const startX = e.clientX;
+    const container = subviewsRowRef.current;
+    if (!container) return;
+
+    const cs = getComputedStyle(container);
+    const availW = container.clientWidth
+      - parseFloat(cs.paddingLeft)
+      - parseFloat(cs.paddingRight)
+      - (subviewDefs.length - 1) * HANDLE_WIDTH_PX;
+
+    const startFlexes = subviewDefs.map(def => subviewFlexMap[def.id] ?? 1);
+    const totalFlex = startFlexes.reduce((a, b) => a + b, 0);
+    const minFlex = (MIN_SUBVIEW_WIDTH_PX / availW) * totalFlex;
+    const leftId = subviewDefs[leftIdx].id;
+    const rightId = subviewDefs[leftIdx + 1].id;
+
+    const onMove = (me: PointerEvent) => {
+      const raw = ((me.clientX - startX) / availW) * totalFlex;
+      const delta = Math.max(-(startFlexes[leftIdx] - minFlex), Math.min(startFlexes[leftIdx + 1] - minFlex, raw));
+      setSubviewFlexMap(prev => ({
+        ...prev,
+        [leftId]: startFlexes[leftIdx] + delta,
+        [rightId]: startFlexes[leftIdx + 1] - delta,
+      }));
+    };
+
+    const onUp = () => {
+      handle.removeEventListener("pointermove", onMove);
+      document.body.style.userSelect = "";
+    };
+
+    handle.addEventListener("pointermove", onMove);
+    handle.addEventListener("pointerup", onUp, { once: true });
+  };
 
   const handleRehydrate = () => {
     const newData = decodeHydration(generateHydrationPayload());
@@ -416,23 +474,40 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
         </>
       )}
       {core && subviewDefs.length > 0 && (
-        <div className={styles.subviewsRow}>
-          {subviewDefs.map((def, i) => {
+        <div className={styles.subviewsRow} ref={subviewsRowRef}>
+          {subviewDefs.flatMap((def, i) => {
             const { accent } = SUBVIEW_PALETTE[i % SUBVIEW_PALETTE.length];
-            return (
-            <div key={def.id} className={styles.subviewWrapper} style={{ borderTop: `2px solid ${accent}` }}>
-              <div className={styles.subviewHeader}>
-                <span style={{ color: accent }}>{(def.freqStart / 1000).toFixed(0)}–{(def.freqEnd / 1000).toFixed(0)} MHz</span>
-                <button
-                  onClick={() => setSubviewDefs((prev) => prev.filter((d) => d.id !== def.id))}
-                  className={styles.button.inactive}
+            const elements = [];
+            if (i > 0) {
+              elements.push(
+                <div
+                  key={`handle-${def.id}`}
+                  className={styles.resizeHandle}
+                  onPointerDown={(e) => handleResizePointerDown(e, i - 1)}
                 >
-                  ✕
-                </button>
+                  <div className={styles.resizeHandleBar} />
+                </div>
+              );
+            }
+            elements.push(
+              <div
+                key={def.id}
+                className={styles.subviewWrapper}
+                style={{ borderTop: `2px solid ${accent}`, flex: subviewFlexMap[def.id] ?? 1 }}
+              >
+                <div className={styles.subviewHeader}>
+                  <span style={{ color: accent }}>{(def.freqStart / 1000).toFixed(0)}–{(def.freqEnd / 1000).toFixed(0)} MHz</span>
+                  <button
+                    onClick={() => setSubviewDefs((prev) => prev.filter((d) => d.id !== def.id))}
+                    className={styles.button.inactive}
+                  >
+                    ✕
+                  </button>
+                </div>
+                <SpectrumSubview core={core} freqStart={def.freqStart} freqEnd={def.freqEnd} />
               </div>
-              <SpectrumSubview core={core} freqStart={def.freqStart} freqEnd={def.freqEnd} />
-            </div>
             );
+            return elements;
           })}
         </div>
       )}

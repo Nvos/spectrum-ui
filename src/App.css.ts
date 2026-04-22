@@ -77,7 +77,6 @@ export const occLabel = style({
 
 export const subviewsRow = style({
   display: "flex",
-  gap: "0.75rem",
   padding: "0 2rem 1rem",
   height: "16rem",
   flexShrink: 0,
@@ -88,7 +87,30 @@ export const subviewWrapper = style({
   display: "flex",
   flexDirection: "column",
   minWidth: "18rem",
-  flex: 1,
+  flexShrink: 0,
+});
+
+export const resizeHandle = style({
+  width: "10px",
+  flexShrink: 0,
+  cursor: "col-resize",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  borderRadius: "2px",
+  transition: "background 0.12s",
+  selectors: {
+    "&:hover": { background: "rgba(255,255,255,0.06)" },
+    "&:active": { background: "rgba(255,255,255,0.1)" },
+  },
+});
+
+export const resizeHandleBar = style({
+  width: "2px",
+  height: "40%",
+  borderRadius: "1px",
+  background: "rgba(255,255,255,0.15)",
+  pointerEvents: "none",
 });
 
 export const subviewHeader = style({
