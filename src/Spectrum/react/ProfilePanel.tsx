@@ -17,7 +17,7 @@ export const ProfilePanel = ({ ranges, freqStartMHz, freqEndMHz, onChange }: Pro
     onChange([
       ...ranges,
       {
-        id: crypto.randomUUID(),
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
         numericId: nextNumericId.current,
         name: "",
         freqStartMHz: center - half,
