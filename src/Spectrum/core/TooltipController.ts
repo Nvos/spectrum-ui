@@ -23,6 +23,11 @@ type TooltipOptions = {
   maxHold: MaxHoldLayer;
   occupancyLayer?: OccupancyRenderer;
   viewport: Viewport;
+  // Subview: normalized position of this view within the full spectrum [0, 1].
+  // Used to convert viewport coords (full-spectrum space) to local frequency.
+  // Defaults to [0, 1] for the main view.
+  normalizedStart?: number;
+  normalizedEnd?: number;
 };
 
 export class TooltipController {
@@ -32,9 +37,15 @@ export class TooltipController {
   private waterfallCanvas: HTMLCanvasElement | null = null;
   private lastMouse: MousePosition | null = null;
   private profileRanges: NormalizedRange[] = [];
+  private displayRowCount: number;
 
   constructor(opts: TooltipOptions) {
     this.opts = opts;
+    this.displayRowCount = opts.rowCount;
+  }
+
+  setDisplayRowCount(n: number) {
+    this.displayRowCount = n;
   }
 
   setProfileRanges(ranges: NormalizedRange[]) {
@@ -65,7 +76,6 @@ export class TooltipController {
       freqStartMHz,
       freqEndMHz,
       binCount,
-      rowCount,
       buffer,
       avgLayer,
       maxHold,
@@ -75,7 +85,10 @@ export class TooltipController {
 
     const viewNorm =
       viewport.start + pos.normX * (viewport.end - viewport.start);
-    const freqMHz = freqStartMHz + viewNorm * (freqEndMHz - freqStartMHz);
+    const normStart = this.opts.normalizedStart ?? 0;
+    const normEnd = this.opts.normalizedEnd ?? 1;
+    const localNorm = (viewNorm - normStart) / (normEnd - normStart);
+    const freqMHz = freqStartMHz + localNorm * (freqEndMHz - freqStartMHz);
     const binIndex = Math.max(
       0,
       Math.min(binCount - 1, Math.floor(viewNorm * binCount)),
@@ -85,7 +98,7 @@ export class TooltipController {
         ? (buffer.writeRow - 1 + buffer.rowCount) % buffer.rowCount
         : (buffer.writeRow -
             1 -
-            Math.floor(pos.waterfallNormY * (rowCount - 1)) +
+            Math.floor(pos.waterfallNormY * (this.displayRowCount - 1)) +
             buffer.rowCount * 2) %
           buffer.rowCount;
 

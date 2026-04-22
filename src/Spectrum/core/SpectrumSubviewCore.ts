@@ -119,6 +119,7 @@ export class SpectrumSubviewCore implements SubviewHandle {
       const n = Math.max(10, Math.floor(h / 2));
       waterfallRenderer.setRowCount(n);
       annotationRenderer.setDisplayRowCount(n);
+      tooltipController.setDisplayRowCount(n);
     });
     this.resizeObserver.observe(refs.waterfall);
 
@@ -146,11 +147,13 @@ export class SpectrumSubviewCore implements SubviewHandle {
       freqStartMHz: subFreqStartMHz,
       freqEndMHz: subFreqEndMHz,
       binCount,
-      rowCount,
+      rowCount: initialRowCount,
       buffer,
       avgLayer,
       maxHold,
       viewport,
+      normalizedStart,
+      normalizedEnd,
     });
     tooltipController.mount(refs.tooltip, refs.live, refs.waterfall);
 
