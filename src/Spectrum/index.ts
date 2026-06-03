@@ -20,4 +20,6 @@ export {
   layerVisibilityAtom,
   avgTauAtom,
   occupancyThresholdAtom,
+  bandsAtom,
 } from "./react/store";
+export type { Band } from "./core/BandTypes";

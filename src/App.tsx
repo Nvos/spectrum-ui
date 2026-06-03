@@ -17,6 +17,7 @@ import { generateHydrationPayload, generateLiveFrame, MOCK_BIN_COUNT, TICK_MS } 
 import type { HydrationPayload } from "./mock";
 import {
   avgTauAtom,
+  bandsAtom,
   colorMapAtom,
   createSpectrumStore,
   displayMaxAtom,
@@ -25,6 +26,7 @@ import {
   occupancyThresholdAtom,
 } from "./Spectrum/react/store";
 import type { LayerName, SpectrumStore } from "./Spectrum/react/store";
+import type { Band } from "./Spectrum/core/BandTypes";
 
 const SUBVIEW_PALETTE = [
   { band: "rgba(100, 210, 255, 0.18)", accent: "#64d2ff" },
@@ -36,6 +38,36 @@ const SUBVIEW_PALETTE = [
 
 const DEFAULT_BINS = 2000;
 const DEFAULT_ROWS = 300;
+
+const DEMO_BANDS: Band[] = [
+  // ── VHF Low (25–88 MHz) ──────────────────────────────────────
+  { id: "vhf-gov",    name: "VHF Gov/Mil",       freqStartMHz: 25,    freqEndMHz: 50,    color: "#636e72" },
+  { id: "6m",         name: "6m Amateur",         freqStartMHz: 50,    freqEndMHz: 54,    color: "#a29bfe" },
+  { id: "vhf-tv-lo",  name: "VHF TV (lo)",        freqStartMHz: 54,    freqEndMHz: 72,    color: "#b2bec3" },
+  { id: "rc-model",   name: "RC Aircraft",        freqStartMHz: 72,    freqEndMHz: 76,    color: "#fd79a8" },
+  { id: "vhf-tv-hi",  name: "VHF TV (hi)",        freqStartMHz: 76,    freqEndMHz: 88,    color: "#dfe6e9" },
+  // ── Congested 87.5–175 MHz ───────────────────────────────────
+  { id: "fm",         name: "FM Broadcast",       freqStartMHz: 87.5,  freqEndMHz: 108,   color: "#ff6b6b" },
+  { id: "ils",        name: "ILS / VOR",          freqStartMHz: 108,   freqEndMHz: 118,   color: "#ffeaa7" },
+  { id: "airband",    name: "Airband",             freqStartMHz: 108,   freqEndMHz: 137,   color: "#4ecdc4" },
+  { id: "guard",      name: "Guard 121.5",        freqStartMHz: 121.4, freqEndMHz: 121.6, color: "#ff7675" },
+  { id: "mil-air",    name: "Military Air",       freqStartMHz: 132,   freqEndMHz: 144,   color: "#e17055" },
+  { id: "2m",         name: "2m Amateur",         freqStartMHz: 144,   freqEndMHz: 148,   color: "#74b9ff" },
+  { id: "aprs",       name: "APRS 144.8",         freqStartMHz: 144.7, freqEndMHz: 144.9, color: "#0984e3" },
+  { id: "pager",      name: "Paging",             freqStartMHz: 148,   freqEndMHz: 152,   color: "#fdcb6e" },
+  { id: "pub-safety", name: "Public Safety",      freqStartMHz: 150,   freqEndMHz: 174,   color: "#e84393" },
+  { id: "marine",     name: "VHF Marine",         freqStartMHz: 156,   freqEndMHz: 174,   color: "#45b7d1" },
+  { id: "ch16",       name: "Distress Ch.16",     freqStartMHz: 156.7, freqEndMHz: 156.9, color: "#d63031" },
+  { id: "noaa",       name: "NOAA Weather",       freqStartMHz: 162.4, freqEndMHz: 162.6, color: "#00b894" },
+  // ── DAB / UHF (174–420 MHz) ──────────────────────────────────
+  { id: "dab",        name: "DAB+ Band III",      freqStartMHz: 174,   freqEndMHz: 230,   color: "#96ceb4" },
+  { id: "1-25m",      name: "1.25m Amateur",      freqStartMHz: 220,   freqEndMHz: 225,   color: "#55efc4" },
+  { id: "mil-uhf",    name: "Military UHF",       freqStartMHz: 225,   freqEndMHz: 380,   color: "#576574" },
+  { id: "tetra-lo",   name: "TETRA (lo)",         freqStartMHz: 380,   freqEndMHz: 390,   color: "#ff9f43" },
+  { id: "tetra-hi",   name: "TETRA (hi)",         freqStartMHz: 390,   freqEndMHz: 400,   color: "#e67e22" },
+  { id: "gov-uhf",    name: "Gov UHF",            freqStartMHz: 400,   freqEndMHz: 406,   color: "#81ecec" },
+  { id: "70cm",       name: "70cm Amateur",       freqStartMHz: 415,   freqEndMHz: 420,   color: "#a29bfe" },
+];
 
 const decodeHydration = (payload: HydrationPayload): SpectrumInitialData => {
   const { binCount, spectrum, annotations } = payload;
@@ -308,6 +340,13 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
   const setAvgTau = useSetAtom(avgTauAtom);
   const occupancyThreshold = useAtomValue(occupancyThresholdAtom);
   const setOccupancyThreshold = useSetAtom(occupancyThresholdAtom);
+  const bands = useAtomValue(bandsAtom);
+  const setBands = useSetAtom(bandsAtom);
+
+  useEffect(() => {
+    setBands(DEMO_BANDS);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const handleLayerToggle = (id: LayerName, visible: boolean) =>
     setLayerVisibility((prev) => ({ ...prev, [id]: visible }));
 
@@ -451,7 +490,7 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
           Clear
         </button>
       </div>
-      <div className={styles.spectrumContainer}>{core && <Spectrum core={core} profileRanges={profileRanges} />}</div>
+      <div className={styles.spectrumContainer}>{core && <Spectrum core={core} profileRanges={profileRanges} bands={bands} />}</div>
       {profileDrawerOpen && (
         <>
           <div className={styles.drawerOverlay} onClick={() => setProfileDrawerOpen(false)} />

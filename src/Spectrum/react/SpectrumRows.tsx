@@ -1,6 +1,20 @@
 import type { RefObject } from "react";
 import * as styles from "./SpectrumRows.css";
 
+type BandRowProps = {
+  bandContainerRef: RefObject<HTMLDivElement | null>;
+};
+
+export const BandRow = ({ bandContainerRef }: BandRowProps) => {
+  return (
+    <div className={styles.bandRow}>
+      <div className={styles.bandRowSpacer} />
+      <div ref={bandContainerRef} className={styles.bandContainer} />
+      <div className={styles.spacerW10} />
+    </div>
+  );
+};
+
 type LiveRowProps = {
   liveRef: RefObject<HTMLCanvasElement | null>;
   powerAxisRef: RefObject<HTMLDivElement | null>;
@@ -60,6 +74,7 @@ type LayoutProps = {
   timeLabelsRef: RefObject<HTMLDivElement | null>;
   powerAxisRef: RefObject<HTMLDivElement | null>;
   colormapLegendRef: RefObject<HTMLDivElement | null>;
+  bandContainerRef: RefObject<HTMLDivElement | null>;
 };
 
 export const SpectrumLayout = ({
@@ -72,10 +87,12 @@ export const SpectrumLayout = ({
   timeLabelsRef,
   powerAxisRef,
   colormapLegendRef,
+  bandContainerRef,
 }: LayoutProps) => {
   return (
     <div className={styles.layout}>
       <div className={styles.layoutInner}>
+        <BandRow bandContainerRef={bandContainerRef} />
         <LiveRow liveRef={liveRef} powerAxisRef={powerAxisRef} />
         <OccupancyRow occupancyRef={occupancyRef} />
         <div className={styles.freqAxisRow}>

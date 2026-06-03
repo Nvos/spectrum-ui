@@ -51,6 +51,25 @@ export const occupancyCanvas = style({
   minWidth: 0,
 });
 
+// Band row
+export const bandRow = style({
+  display: "flex",
+  flexShrink: 0,
+});
+
+export const bandRowSpacer = style({
+  width: "2rem",
+  flexShrink: 0,
+  borderRight: `1px solid rgba(255,255,255,0.1)`,
+});
+
+export const bandContainer = style({
+  position: "relative",
+  flex: 1,
+  minWidth: 0,
+  overflow: "hidden",
+});
+
 // Freq axis row
 export const freqAxisRow = style({
   display: "flex",

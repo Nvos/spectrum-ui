@@ -1,5 +1,7 @@
 import { buildLUT, COLORMAPS } from "./colormaps";
 import { AnnotationRenderer } from "./AnnotationRenderer";
+import { BandController } from "./BandController";
+import type { Band } from "./BandTypes";
 import { ProfileRangeHandler } from "./ProfileRangeHandler";
 import type { ProfileRange, NormalizedRange } from "./ProfileTypes";
 import { AverageLayer } from "./AverageLayer";
@@ -64,6 +66,8 @@ export type SpectrumMountRefs = {
   tooltip: HTMLDivElement;
   powerAxis: HTMLDivElement;
   colormapLegend: HTMLDivElement;
+  bandContainer: HTMLDivElement;
+  bandTooltip: HTMLDivElement;
 };
 
 export class SpectrumCore {
@@ -98,6 +102,7 @@ export class SpectrumCore {
   private powerAxisController: PowerAxisController | null = null;
   private colormapLegendController: ColormapLegendController | null = null;
   private subviewHighlightController: SubviewHighlightController | null = null;
+  private bandController: BandController | null = null;
   private waterfallInput: InputHandler | null = null;
   private liveInput: InputHandler | null = null;
   private rafHandle: number | null = null;
@@ -215,11 +220,15 @@ export class SpectrumCore {
     const subviewHighlightController = new SubviewHighlightController();
     subviewHighlightController.mount(refs.subviewHighlight);
 
+    const bandController = new BandController(freqStartMHz, freqEndMHz);
+    bandController.mount(refs.bandContainer, refs.bandTooltip);
+
     const renderAll = () => {
       this.processNewRows();
       tooltipController.refresh();
       freqAxisController.update(viewport.start, viewport.end);
       subviewHighlightController.update(viewport.start, viewport.end);
+      bandController.update(viewport.start, viewport.end);
       waterfallRenderer.render();
       liveRenderer.render();
       occupancyRenderer.render();
@@ -273,6 +282,7 @@ export class SpectrumCore {
     this.powerAxisController = powerAxisController;
     this.colormapLegendController = colormapLegendController;
     this.subviewHighlightController = subviewHighlightController;
+    this.bandController = bandController;
   }
 
   destroy() {
@@ -291,6 +301,7 @@ export class SpectrumCore {
     this.powerAxisController?.destroy();
     this.colormapLegendController?.destroy();
     this.subviewHighlightController?.destroy();
+    this.bandController?.destroy();
 
     this.waterfallRenderer = null;
     this.liveRenderer = null;
@@ -305,6 +316,7 @@ export class SpectrumCore {
     this.powerAxisController = null;
     this.colormapLegendController = null;
     this.subviewHighlightController = null;
+    this.bandController = null;
     this.waterfallInput = null;
     this.liveInput = null;
     this.rafHandle = null;
@@ -412,6 +424,11 @@ export class SpectrumCore {
 
   setSubviewHighlights(ranges: HighlightRange[]) {
     this.subviewHighlightController?.setRanges(ranges);
+  }
+
+  setBands(bands: Band[]) {
+    this.bandController?.setBands(bands);
+    this.scheduleRender?.();
   }
 
   setProfileRanges(ranges: ProfileRange[]) {

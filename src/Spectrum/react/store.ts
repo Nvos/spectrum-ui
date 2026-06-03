@@ -1,5 +1,6 @@
 import { atom, createStore } from "jotai";
 import { ColorMap } from "../core/colormaps";
+import type { Band } from "../core/BandTypes";
 
 export type LayerName = "live" | "avg" | "max" | "maxSnapshot" | "annotations";
 
@@ -15,6 +16,7 @@ export const layerVisibilityAtom = atom<Record<LayerName, boolean>>({
 });
 export const avgTauAtom = atom(2000);
 export const occupancyThresholdAtom = atom(-82);
+export const bandsAtom = atom<Band[]>([]);
 
 export type SpectrumStore = ReturnType<typeof createStore>;
 export { createStore as createSpectrumStore };
