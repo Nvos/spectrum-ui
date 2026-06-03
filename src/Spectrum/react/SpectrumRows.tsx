@@ -18,13 +18,17 @@ export const BandRow = ({ bandContainerRef }: BandRowProps) => {
 type LiveRowProps = {
   liveRef: RefObject<HTMLCanvasElement | null>;
   powerAxisRef: RefObject<HTMLDivElement | null>;
+  gridContainerRef: RefObject<HTMLDivElement | null>;
 };
 
-export const LiveRow = ({ liveRef, powerAxisRef }: LiveRowProps) => {
+export const LiveRow = ({ liveRef, powerAxisRef, gridContainerRef }: LiveRowProps) => {
   return (
     <div className={styles.liveRow}>
       <div ref={powerAxisRef} />
-      <canvas className={styles.liveCanvas} ref={liveRef} />
+      <div className={styles.liveCanvasWrapper}>
+        <canvas className={styles.liveCanvas} ref={liveRef} />
+        <div ref={gridContainerRef} className={styles.gridOverlay} />
+      </div>
       <div className={styles.spacerW10} />
     </div>
   );
@@ -75,6 +79,7 @@ type LayoutProps = {
   powerAxisRef: RefObject<HTMLDivElement | null>;
   colormapLegendRef: RefObject<HTMLDivElement | null>;
   bandContainerRef: RefObject<HTMLDivElement | null>;
+  gridContainerRef: RefObject<HTMLDivElement | null>;
 };
 
 export const SpectrumLayout = ({
@@ -88,12 +93,13 @@ export const SpectrumLayout = ({
   powerAxisRef,
   colormapLegendRef,
   bandContainerRef,
+  gridContainerRef,
 }: LayoutProps) => {
   return (
     <div className={styles.layout}>
       <div className={styles.layoutInner}>
         <BandRow bandContainerRef={bandContainerRef} />
-        <LiveRow liveRef={liveRef} powerAxisRef={powerAxisRef} />
+        <LiveRow liveRef={liveRef} powerAxisRef={powerAxisRef} gridContainerRef={gridContainerRef} />
         <OccupancyRow occupancyRef={occupancyRef} />
         <div className={styles.freqAxisRow}>
           <div className={styles.freqAxisLeft} />

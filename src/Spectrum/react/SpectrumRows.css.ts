@@ -23,12 +23,25 @@ export const liveRow = style({
   marginTop: "0.5rem",
 });
 
-export const liveCanvas = style({
+export const liveCanvasWrapper = style({
   flex: 1,
-  display: "block",
+  position: "relative",
   minHeight: 0,
   minWidth: 0,
+});
+
+export const liveCanvas = style({
+  display: "block",
+  width: "100%",
+  height: "100%",
   border: `1px solid rgba(255,255,255,0.1)`,
+});
+
+export const gridOverlay = style({
+  position: "absolute",
+  inset: 0,
+  pointerEvents: "none",
+  overflow: "hidden",
 });
 
 // Occupancy row

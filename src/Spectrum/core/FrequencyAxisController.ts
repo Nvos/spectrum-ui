@@ -15,7 +15,7 @@ const formatFreq = (mhz: number): string => mhz.toFixed(3);
 
 type Tick = { freq: number; pct: number };
 
-const computeTicks = (
+export const computeTicks = (
   freqMin: number,
   freqMax: number,
   maxTicks: number,

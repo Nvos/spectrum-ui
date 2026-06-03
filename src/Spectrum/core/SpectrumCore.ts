@@ -7,6 +7,7 @@ import type { ProfileRange, NormalizedRange } from "./ProfileTypes";
 import { AverageLayer } from "./AverageLayer";
 import { ColormapLegendController } from "./ColormapLegendController";
 import { FrequencyAxisController } from "./FrequencyAxisController";
+import { GridLineController } from "./GridLineController";
 import { FrameBuffer } from "./FrameBuffer";
 import { InputHandler } from "./InputHandler";
 import { LiveRenderer } from "./LiveRenderer";
@@ -68,6 +69,7 @@ export type SpectrumMountRefs = {
   colormapLegend: HTMLDivElement;
   bandContainer: HTMLDivElement;
   bandTooltip: HTMLDivElement;
+  gridContainer: HTMLDivElement;
 };
 
 export class SpectrumCore {
@@ -103,6 +105,7 @@ export class SpectrumCore {
   private colormapLegendController: ColormapLegendController | null = null;
   private subviewHighlightController: SubviewHighlightController | null = null;
   private bandController: BandController | null = null;
+  private gridLineController: GridLineController | null = null;
   private waterfallInput: InputHandler | null = null;
   private liveInput: InputHandler | null = null;
   private rafHandle: number | null = null;
@@ -223,12 +226,16 @@ export class SpectrumCore {
     const bandController = new BandController(freqStartMHz, freqEndMHz);
     bandController.mount(refs.bandContainer, refs.bandTooltip);
 
+    const gridLineController = new GridLineController(freqStartMHz, freqEndMHz);
+    gridLineController.mount(refs.gridContainer);
+
     const renderAll = () => {
       this.processNewRows();
       tooltipController.refresh();
       freqAxisController.update(viewport.start, viewport.end);
       subviewHighlightController.update(viewport.start, viewport.end);
       bandController.update(viewport.start, viewport.end);
+      gridLineController.update(viewport.start, viewport.end);
       waterfallRenderer.render();
       liveRenderer.render();
       occupancyRenderer.render();
@@ -283,6 +290,7 @@ export class SpectrumCore {
     this.colormapLegendController = colormapLegendController;
     this.subviewHighlightController = subviewHighlightController;
     this.bandController = bandController;
+    this.gridLineController = gridLineController;
   }
 
   destroy() {
@@ -302,6 +310,7 @@ export class SpectrumCore {
     this.colormapLegendController?.destroy();
     this.subviewHighlightController?.destroy();
     this.bandController?.destroy();
+    this.gridLineController?.destroy();
 
     this.waterfallRenderer = null;
     this.liveRenderer = null;
@@ -317,6 +326,7 @@ export class SpectrumCore {
     this.colormapLegendController = null;
     this.subviewHighlightController = null;
     this.bandController = null;
+    this.gridLineController = null;
     this.waterfallInput = null;
     this.liveInput = null;
     this.rafHandle = null;

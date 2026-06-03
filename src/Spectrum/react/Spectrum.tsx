@@ -24,6 +24,7 @@ export const Spectrum = ({ core, profileRanges, bands }: Props) => {
   const colormapLegendRef = useRef<HTMLDivElement>(null);
   const bandContainerRef = useRef<HTMLDivElement>(null);
   const bandTooltipRef = useRef<HTMLDivElement>(null);
+  const gridContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     core.mount({
@@ -39,6 +40,7 @@ export const Spectrum = ({ core, profileRanges, bands }: Props) => {
       colormapLegend: colormapLegendRef.current!,
       bandContainer: bandContainerRef.current!,
       bandTooltip: bandTooltipRef.current!,
+      gridContainer: gridContainerRef.current!,
     });
     return () => core.destroy();
   }, [core]);
@@ -64,6 +66,7 @@ export const Spectrum = ({ core, profileRanges, bands }: Props) => {
         powerAxisRef={powerAxisRef}
         colormapLegendRef={colormapLegendRef}
         bandContainerRef={bandContainerRef}
+        gridContainerRef={gridContainerRef}
       />
       <div ref={tooltipRef} className={styles.tooltip} style={{ display: "none" }} />
       <div ref={bandTooltipRef} className={styles.tooltip} style={{ display: "none" }} />
