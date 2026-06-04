@@ -1,5 +1,6 @@
 import { computePosition, flip, offset, shift } from "@floating-ui/dom";
 import type { Band } from "./BandTypes";
+import { BAND_COLORS } from "./BandTypes";
 import * as coreStyles from "./styles.css";
 import { font } from "../tokens";
 
@@ -168,8 +169,9 @@ export class BandController {
   }
 
   private syncItem(item: PoolItem, band: Band) {
-    item.el.style.backgroundColor = `color-mix(in srgb, ${band.color} 25%, transparent)`;
-    item.el.style.borderColor = `color-mix(in srgb, ${band.color} 80%, transparent)`;
+    const hex = BAND_COLORS[band.color];
+    item.el.style.backgroundColor = `color-mix(in srgb, ${hex} 25%, transparent)`;
+    item.el.style.borderColor = `color-mix(in srgb, ${hex} 80%, transparent)`;
     item.label.textContent = band.name;
   }
 
