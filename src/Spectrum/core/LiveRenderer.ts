@@ -43,6 +43,7 @@ export class LiveRenderer {
   private liveVisible: boolean;
   private annotationVisible: boolean;
   private profileRanges: NormalizedRange[] = [];
+  private hoveredBand: { normStart: number; normEnd: number; hex: string } | null = null;
 
   constructor(binCount: number, buffer: RingBuffer, settings: LiveSettings) {
     this.binCount = binCount;
@@ -55,6 +56,10 @@ export class LiveRenderer {
 
   setProfileRanges(ranges: NormalizedRange[]) {
     this.profileRanges = ranges;
+  }
+
+  setHoveredBand(range: { normStart: number; normEnd: number; hex: string } | null) {
+    this.hoveredBand = range;
   }
 
   destroy() {}
@@ -128,6 +133,22 @@ export class LiveRenderer {
         ctx.moveTo(xR, 0); ctx.lineTo(xR, height);
         ctx.stroke();
       }
+    }
+
+    // --- Band hover highlight ---
+    if (this.hoveredBand) {
+      const { normStart, normEnd, hex } = this.hoveredBand;
+      const xL = ((normStart - start) / visibleSpan) * width;
+      const xR = ((normEnd - start) / visibleSpan) * width;
+      ctx.setLineDash([]);
+      ctx.fillStyle = `color-mix(in srgb, ${hex} 12%, transparent)`;
+      ctx.fillRect(xL, 0, xR - xL, height);
+      ctx.strokeStyle = `color-mix(in srgb, ${hex} 35%, transparent)`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(xL, 0); ctx.lineTo(xL, height);
+      ctx.moveTo(xR, 0); ctx.lineTo(xR, height);
+      ctx.stroke();
     }
 
     // --- Spectrum fill + line ---

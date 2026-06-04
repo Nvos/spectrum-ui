@@ -225,6 +225,10 @@ export class SpectrumCore {
 
     const bandController = new BandController(freqStartMHz, freqEndMHz, 3);
     bandController.mount(refs.bandContainer, refs.bandTooltip);
+    bandController.onHover = (range) => {
+      liveRenderer.setHoveredBand(range);
+      scheduleRender();
+    };
 
     const gridLineController = new GridLineController(freqStartMHz, freqEndMHz);
     gridLineController.mount(refs.gridContainer);

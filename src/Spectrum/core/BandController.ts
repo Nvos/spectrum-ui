@@ -58,6 +58,8 @@ const assignRows = (bands: Band[], freqStart: number, freqEnd: number, numRows: 
 };
 
 export class BandController {
+  onHover?: (range: { normStart: number; normEnd: number; hex: string } | null) => void;
+
   private freqStart: number;
   private freqEnd: number;
   private numRows: number;
@@ -186,6 +188,8 @@ export class BandController {
 
     const { band, normStart, normEnd, parentId } = a;
 
+    this.onHover?.({ normStart, normEnd, hex: BAND_COLORS[band.color] });
+
     const cell = (l: string, v: string, muted = false) =>
       `<span class="${coreStyles.tooltipLabel}"${muted ? ' style="opacity:0.55"' : ""}>${l}</span>` +
       `<span${muted ? ' style="opacity:0.55"' : ""}>${v}</span>`;
@@ -228,6 +232,7 @@ export class BandController {
 
   private hideTooltip() {
     if (this.tooltip) this.tooltip.style.display = "none";
+    this.onHover?.(null);
   }
 
   destroy() {
