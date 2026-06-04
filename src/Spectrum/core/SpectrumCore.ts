@@ -223,7 +223,7 @@ export class SpectrumCore {
     const subviewHighlightController = new SubviewHighlightController();
     subviewHighlightController.mount(refs.subviewHighlight);
 
-    const bandController = new BandController(freqStartMHz, freqEndMHz);
+    const bandController = new BandController(freqStartMHz, freqEndMHz, 3);
     bandController.mount(refs.bandContainer, refs.bandTooltip);
 
     const gridLineController = new GridLineController(freqStartMHz, freqEndMHz);

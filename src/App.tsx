@@ -40,33 +40,83 @@ const DEFAULT_BINS = 2000;
 const DEFAULT_ROWS = 300;
 
 const DEMO_BANDS: Band[] = [
-  // ── VHF Low (25–88 MHz) ──────────────────────────────────────
-  { id: "vhf-gov",    name: "VHF Gov/Mil",       freqStartMHz: 25,    freqEndMHz: 50,    color: "#636e72" },
-  { id: "6m",         name: "6m Amateur",         freqStartMHz: 50,    freqEndMHz: 54,    color: "#a29bfe" },
-  { id: "vhf-tv-lo",  name: "VHF TV (lo)",        freqStartMHz: 54,    freqEndMHz: 72,    color: "#b2bec3" },
-  { id: "rc-model",   name: "RC Aircraft",        freqStartMHz: 72,    freqEndMHz: 76,    color: "#fd79a8" },
-  { id: "vhf-tv-hi",  name: "VHF TV (hi)",        freqStartMHz: 76,    freqEndMHz: 88,    color: "#dfe6e9" },
-  // ── Congested 87.5–175 MHz ───────────────────────────────────
-  { id: "fm",         name: "FM Broadcast",       freqStartMHz: 87.5,  freqEndMHz: 108,   color: "#ff6b6b" },
-  { id: "ils",        name: "ILS / VOR",          freqStartMHz: 108,   freqEndMHz: 118,   color: "#ffeaa7" },
-  { id: "airband",    name: "Airband",             freqStartMHz: 108,   freqEndMHz: 137,   color: "#4ecdc4" },
-  { id: "guard",      name: "Guard 121.5",        freqStartMHz: 121.4, freqEndMHz: 121.6, color: "#ff7675" },
-  { id: "mil-air",    name: "Military Air",       freqStartMHz: 132,   freqEndMHz: 144,   color: "#e17055" },
-  { id: "2m",         name: "2m Amateur",         freqStartMHz: 144,   freqEndMHz: 148,   color: "#74b9ff" },
-  { id: "aprs",       name: "APRS 144.8",         freqStartMHz: 144.7, freqEndMHz: 144.9, color: "#0984e3" },
-  { id: "pager",      name: "Paging",             freqStartMHz: 148,   freqEndMHz: 152,   color: "#fdcb6e" },
-  { id: "pub-safety", name: "Public Safety",      freqStartMHz: 150,   freqEndMHz: 174,   color: "#e84393" },
-  { id: "marine",     name: "VHF Marine",         freqStartMHz: 156,   freqEndMHz: 174,   color: "#45b7d1" },
-  { id: "ch16",       name: "Distress Ch.16",     freqStartMHz: 156.7, freqEndMHz: 156.9, color: "#d63031" },
-  { id: "noaa",       name: "NOAA Weather",       freqStartMHz: 162.4, freqEndMHz: 162.6, color: "#00b894" },
-  // ── DAB / UHF (174–420 MHz) ──────────────────────────────────
-  { id: "dab",        name: "DAB+ Band III",      freqStartMHz: 174,   freqEndMHz: 230,   color: "#96ceb4" },
-  { id: "1-25m",      name: "1.25m Amateur",      freqStartMHz: 220,   freqEndMHz: 225,   color: "#55efc4" },
-  { id: "mil-uhf",    name: "Military UHF",       freqStartMHz: 225,   freqEndMHz: 380,   color: "#576574" },
-  { id: "tetra-lo",   name: "TETRA (lo)",         freqStartMHz: 380,   freqEndMHz: 390,   color: "#ff9f43" },
-  { id: "tetra-hi",   name: "TETRA (hi)",         freqStartMHz: 390,   freqEndMHz: 400,   color: "#e67e22" },
-  { id: "gov-uhf",    name: "Gov UHF",            freqStartMHz: 400,   freqEndMHz: 406,   color: "#81ecec" },
-  { id: "70cm",       name: "70cm Amateur",       freqStartMHz: 415,   freqEndMHz: 420,   color: "#a29bfe" },
+  // ── HF / VHF low (25–88 MHz) — sparse single-row baseline ───────
+  { id: "vhf-gov",      name: "VHF Gov/Mil",       freqStartMHz: 25,     freqEndMHz: 50,     color: "#636e72" },
+  { id: "6m",           name: "6m Amateur",         freqStartMHz: 50,     freqEndMHz: 54,     color: "#a29bfe" },
+  { id: "vhf-tv-lo",    name: "VHF TV Low",         freqStartMHz: 54,     freqEndMHz: 72,     color: "#b2bec3" },
+  { id: "rc",           name: "RC Aircraft",        freqStartMHz: 72,     freqEndMHz: 76,     color: "#fd79a8" },
+  { id: "vhf-tv-hi",    name: "VHF TV High",        freqStartMHz: 76,     freqEndMHz: 88,     color: "#dfe6e9" },
+  // ── VHF stress zone: all 3 rows + 1 overflow (87.5–175 MHz) ─────
+  // Row 0: fm → ils → pager → marine
+  // Row 1: airband → pub-safety
+  // Row 2: guard → aprs → ch16 → noaa
+  // Overflow: vhf156-8 (sub-channel inside ch16 — 4th nesting level)
+  { id: "fm",           name: "FM Broadcast",       freqStartMHz: 87.5,   freqEndMHz: 108,    color: "#ff6b6b" },
+  { id: "ils",          name: "ILS / VOR",          freqStartMHz: 108,    freqEndMHz: 118,    color: "#ffeaa7" },
+  { id: "airband",      name: "Airband",            freqStartMHz: 108,    freqEndMHz: 137,    color: "#4ecdc4" },
+  { id: "guard",        name: "Guard 121.5",        freqStartMHz: 121.4,  freqEndMHz: 121.6,  color: "#ff7675" },
+  { id: "mil-air",      name: "Military Air",       freqStartMHz: 132,    freqEndMHz: 144,    color: "#e17055" },
+  { id: "2m",           name: "2m Amateur",         freqStartMHz: 144,    freqEndMHz: 148,    color: "#74b9ff" },
+  { id: "aprs",         name: "APRS 144.8",         freqStartMHz: 144.7,  freqEndMHz: 144.9,  color: "#0984e3" },
+  { id: "pager",        name: "Paging",             freqStartMHz: 148,    freqEndMHz: 152,    color: "#fdcb6e" },
+  { id: "pub-safety",   name: "Public Safety",      freqStartMHz: 150,    freqEndMHz: 174,    color: "#e84393" },
+  { id: "marine",       name: "VHF Marine",         freqStartMHz: 156,    freqEndMHz: 174,    color: "#45b7d1" },
+  { id: "ch16",         name: "Distress Ch.16",     freqStartMHz: 156.7,  freqEndMHz: 156.9,  color: "#d63031" },
+  { id: "vhf156-8",     name: "VHF 156.8",          freqStartMHz: 156.79, freqEndMHz: 156.81, color: "#ff7675" },
+  { id: "noaa",         name: "NOAA Weather",       freqStartMHz: 162.4,  freqEndMHz: 162.6,  color: "#00b894" },
+  // ── DAB / UHF (174–500 MHz) ──────────────────────────────────────
+  { id: "dab",          name: "DAB+ Band III",      freqStartMHz: 174,    freqEndMHz: 230,    color: "#96ceb4" },
+  { id: "1-25m",        name: "1.25m Amateur",      freqStartMHz: 220,    freqEndMHz: 225,    color: "#55efc4" },
+  { id: "mil-uhf",      name: "Military UHF",       freqStartMHz: 225,    freqEndMHz: 380,    color: "#576574" },
+  { id: "tetra-lo",     name: "TETRA (lo)",         freqStartMHz: 380,    freqEndMHz: 390,    color: "#ff9f43" },
+  { id: "tetra-hi",     name: "TETRA (hi)",         freqStartMHz: 390,    freqEndMHz: 400,    color: "#e67e22" },
+  { id: "gov-uhf",      name: "Gov UHF",            freqStartMHz: 400,    freqEndMHz: 406,    color: "#81ecec" },
+  { id: "70cm",         name: "70cm Amateur",       freqStartMHz: 430,    freqEndMHz: 440,    color: "#a29bfe" },
+  { id: "drone-433",    name: "Drone 433 ISM",      freqStartMHz: 433.05, freqEndMHz: 434.79, color: "#1dd1a1" },
+  { id: "pmr446",       name: "PMR 446",            freqStartMHz: 446,    freqEndMHz: 446.2,  color: "#fd79a8" },
+  // ── Cellular 700 MHz — wide + UL/DL sub-bands ────────────────────
+  { id: "cell-700",     name: "700 MHz LTE",        freqStartMHz: 703,    freqEndMHz: 803,    color: "#00cec9" },
+  { id: "cell-700-ul",  name: "700 UL",             freqStartMHz: 703,    freqEndMHz: 748,    color: "#81ecec" },
+  { id: "cell-700-dl",  name: "700 DL",             freqStartMHz: 758,    freqEndMHz: 803,    color: "#74b9ff" },
+  // ── Cellular 850 / GSM 900 — overlapping allocations ─────────────
+  { id: "gsm850",       name: "GSM 850",            freqStartMHz: 824,    freqEndMHz: 894,    color: "#e17055" },
+  { id: "gsm850-ul",    name: "GSM 850 UL",         freqStartMHz: 824,    freqEndMHz: 849,    color: "#fd79a8" },
+  { id: "gsm850-dl",    name: "GSM 850 DL",         freqStartMHz: 869,    freqEndMHz: 894,    color: "#ff7675" },
+  { id: "drone-868",    name: "Drone 868 SRD",      freqStartMHz: 863,    freqEndMHz: 870,    color: "#1dd1a1" },
+  { id: "gsm900",       name: "GSM 900",            freqStartMHz: 880,    freqEndMHz: 960,    color: "#e84393" },
+  { id: "gsm900-ul",    name: "GSM 900 UL",         freqStartMHz: 880,    freqEndMHz: 915,    color: "#a29bfe" },
+  { id: "gsm900-dl",    name: "GSM 900 DL",         freqStartMHz: 925,    freqEndMHz: 960,    color: "#6c5ce7" },
+  { id: "drone-915",    name: "Drone 915 ISM",      freqStartMHz: 902,    freqEndMHz: 928,    color: "#1dd1a1" },
+  // ── L-Band / GPS — wide + narrow sub-channels ────────────────────
+  { id: "l-band",       name: "L-Band Nav",         freqStartMHz: 960,    freqEndMHz: 1215,   color: "#636e72" },
+  { id: "gps-l1",       name: "GPS L1",             freqStartMHz: 1572.4, freqEndMHz: 1576.4, color: "#ffeaa7" },
+  { id: "glonass-l1",   name: "GLONASS L1",         freqStartMHz: 1593,   freqEndMHz: 1610,   color: "#fdcb6e" },
+  { id: "fpv-1200",     name: "FPV 1.2 GHz",        freqStartMHz: 1080,   freqEndMHz: 1360,   color: "#f9ca24" },
+  // ── DCS 1800 with UL/DL (1710–1880 MHz) ──────────────────────────
+  { id: "dcs1800",      name: "DCS 1800",           freqStartMHz: 1710,   freqEndMHz: 1880,   color: "#a29bfe" },
+  { id: "dcs1800-ul",   name: "DCS 1800 UL",        freqStartMHz: 1710,   freqEndMHz: 1785,   color: "#6c5ce7" },
+  { id: "dcs1800-dl",   name: "DCS 1800 DL",        freqStartMHz: 1805,   freqEndMHz: 1880,   color: "#fdcb6e" },
+  // ── UMTS 2100 with UL/DL (1920–2170 MHz) ─────────────────────────
+  { id: "umts2100",     name: "UMTS 2100",          freqStartMHz: 1920,   freqEndMHz: 2170,   color: "#4ecdc4" },
+  { id: "umts-ul",      name: "UMTS UL",            freqStartMHz: 1920,   freqEndMHz: 1980,   color: "#55efc4" },
+  { id: "umts-dl",      name: "UMTS DL",            freqStartMHz: 2110,   freqEndMHz: 2170,   color: "#00b894" },
+  // ── WiFi 2.4 GHz zone: all 3 rows + 1 overflow (2400–2500 MHz) ───
+  // Row 0: ISM 2.4 GHz (wide)
+  // Row 1: WiFi Ch.1 → Ch.6 → Ch.11 (non-overlapping)
+  // Row 2: Bluetooth (overlaps all WiFi channels)
+  // Overflow: WiFi 802.11n (blocked by all 3 rows)
+  { id: "ism-24",       name: "ISM 2.4 GHz",        freqStartMHz: 2400,   freqEndMHz: 2500,   color: "#ffeaa7" },
+  { id: "wifi-ch1",     name: "WiFi Ch.1",          freqStartMHz: 2401,   freqEndMHz: 2423,   color: "#ff6b6b" },
+  { id: "bluetooth",    name: "Bluetooth",          freqStartMHz: 2402,   freqEndMHz: 2480,   color: "#6c5ce7" },
+  { id: "wifi-80211n",  name: "WiFi 802.11n",       freqStartMHz: 2412,   freqEndMHz: 2462,   color: "#b2bec3" },
+  { id: "wifi-ch6",     name: "WiFi Ch.6",          freqStartMHz: 2426,   freqEndMHz: 2448,   color: "#00b894" },
+  { id: "wifi-ch11",    name: "WiFi Ch.11",         freqStartMHz: 2451,   freqEndMHz: 2473,   color: "#e84393" },
+  // ── LTE 2600 with UL/DL (2500–2690 MHz) ──────────────────────────
+  { id: "lte-2600",     name: "LTE B7 2600",        freqStartMHz: 2500,   freqEndMHz: 2690,   color: "#96ceb4" },
+  { id: "lte-2600-ul",  name: "LTE B7 UL",          freqStartMHz: 2500,   freqEndMHz: 2570,   color: "#55efc4" },
+  { id: "lte-2600-dl",  name: "LTE B7 DL",          freqStartMHz: 2620,   freqEndMHz: 2690,   color: "#00cec9" },
+  // ── 5G NR n77 — wide band at right edge ──────────────────────────
+  { id: "5g-n77",       name: "5G NR n77",          freqStartMHz: 2690,   freqEndMHz: 3025,   color: "#6c5ce7" },
 ];
 
 const decodeHydration = (payload: HydrationPayload): SpectrumInitialData => {
@@ -192,8 +242,8 @@ const useSpectrumCoreBridge = (store: SpectrumStore, core: SpectrumCore | null) 
 };
 
 const DEFAULT_PARAMS: SpectrumParams = {
-  freqStart: 20_000,
-  resolution: 200,
+  freqStart: 25_000,
+  resolution: 1500,
   binCount: DEFAULT_BINS,
   rowCount: DEFAULT_ROWS,
 };
@@ -208,7 +258,7 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
   const profileRangesRef = useRef(profileRanges);
   profileRangesRef.current = profileRanges;
   const [subviewDefs, setSubviewDefs] = useState<SubviewDef[]>([]);
-  const [subviewForm, setSubviewForm] = useState({ freqStart: 96_000, freqEnd: 104_000 });
+  const [subviewForm, setSubviewForm] = useState({ freqStart: 144_000, freqEnd: 174_000 });
   const nextSubviewId = useRef(0);
   const [subviewFlexMap, setSubviewFlexMap] = useState<Record<number, number>>({});
   const subviewsRowRef = useRef<HTMLDivElement>(null);
@@ -217,8 +267,8 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
     const initialData = decodeHydration(generateHydrationPayload());
     return {
       params: {
-        freqStart: 20_000,
-        resolution: 200,
+        freqStart: 25_000,
+        resolution: 1500,
         binCount: DEFAULT_BINS,
         rowCount: DEFAULT_ROWS,
       },
