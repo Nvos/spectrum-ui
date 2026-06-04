@@ -8,7 +8,7 @@ const ROW_PADDING_PX = 2;
 const MIN_LABEL_PX = 50;
 const OVERFLOW_ALPHA = 0.5;
 
-type Assignment = { band: Band; row: number; overflow: boolean; normStart: number; normEnd: number };
+type Assignment = { band: Band; row: number; overflow: boolean; normStart: number; normEnd: number; parentId?: string };
 type PoolItem = { el: HTMLDivElement; label: HTMLSpanElement };
 
 const assignRows = (bands: Band[], freqStart: number, freqEnd: number, numRows: number): Assignment[] => {
@@ -20,24 +20,35 @@ const assignRows = (bands: Band[], freqStart: number, freqEnd: number, numRows: 
   for (const band of sorted) {
     const normStart = (band.freqStartMHz - freqStart) / span;
     const normEnd = (band.freqEndMHz - freqStart) / span;
-    let assigned = false;
+    let row = numRows - 1;
+    let overflow = false;
+    let placed = false;
 
     for (let r = 0; r < rowEnds.length; r++) {
       if (normStart >= rowEnds[r]) {
         rowEnds[r] = normEnd;
-        result.push({ band, row: r, overflow: false, normStart, normEnd });
-        assigned = true;
+        row = r;
+        placed = true;
         break;
       }
     }
 
-    if (!assigned) {
+    if (!placed) {
       if (rowEnds.length < numRows) {
-        const r = rowEnds.length;
+        row = rowEnds.length;
         rowEnds.push(normEnd);
-        result.push({ band, row: r, overflow: false, normStart, normEnd });
       } else {
-        result.push({ band, row: numRows - 1, overflow: true, normStart, normEnd });
+        overflow = true;
+      }
+    }
+
+    result.push({ band, row, overflow, normStart, normEnd });
+
+    if (band.children?.length) {
+      for (const child of band.children) {
+        const cNormStart = (child.freqStartMHz - freqStart) / span;
+        const cNormEnd = (child.freqEndMHz - freqStart) / span;
+        result.push({ band: child, row, overflow: false, normStart: cNormStart, normEnd: cNormEnd, parentId: band.id });
       }
     }
   }
@@ -82,7 +93,7 @@ export class BandController {
       pool.push(this.createItem(container));
     }
 
-    assignments.forEach(({ band, row, overflow, normStart, normEnd }, i) => {
+    assignments.forEach(({ band, row, overflow, normStart, normEnd, parentId }, i) => {
       const item = pool[i];
       this.syncItem(item, band);
       const { el, label } = item;
@@ -104,6 +115,7 @@ export class BandController {
       el.style.left = `${leftPct}%`;
       el.style.width = `${rightPct - leftPct}%`;
       el.style.top = `${top}px`;
+      el.style.zIndex = parentId != null ? "2" : "1";
       el.style.opacity = overflow ? String(OVERFLOW_ALPHA) : "1";
       el.style.borderStyle = overflow ? "dashed" : "solid";
       label.style.visibility = pixelWidth < MIN_LABEL_PX ? "hidden" : "visible";
@@ -167,17 +179,40 @@ export class BandController {
 
     const idx = this.pool.findIndex((p) => p.el === anchor);
     if (idx === -1) return;
-    const assignment = this.assignments[idx];
-    if (!assignment) return;
+    const a = this.assignments[idx];
+    if (!a) return;
 
-    const { band } = assignment;
-    const cell = (l: string, v: string) =>
-      `<span class="${coreStyles.tooltipLabel}">${l}</span><span>${v}</span>`;
+    const { band, normStart, normEnd, parentId } = a;
 
-    tt.innerHTML =
+    const cell = (l: string, v: string, muted = false) =>
+      `<span class="${coreStyles.tooltipLabel}"${muted ? ' style="opacity:0.55"' : ""}>${l}</span>` +
+      `<span${muted ? ' style="opacity:0.55"' : ""}>${v}</span>`;
+
+    let html =
       cell("name", band.name) +
       cell("range", `${band.freqStartMHz.toFixed(3)} – ${band.freqEndMHz.toFixed(3)} MHz`);
 
+    const overlapping = this.assignments.filter((other, i) =>
+      i !== idx && !(other.normEnd <= normStart || other.normStart >= normEnd)
+    );
+
+    const contextRows: string[] = [];
+
+    if (parentId) {
+      const parent = overlapping.find((o) => o.band.id === parentId);
+      if (parent) contextRows.push(cell("part of", parent.band.name));
+    }
+
+    for (const other of overlapping) {
+      if (other.band.id === parentId || other.parentId === band.id) continue;
+      contextRows.push(cell("overlaps", other.band.name, true));
+    }
+
+    if (contextRows.length > 0) {
+      html += `<span class="${coreStyles.tooltipDivider}"></span>` + contextRows.join("");
+    }
+
+    tt.innerHTML = html;
     tt.style.display = "grid";
 
     computePosition(anchor, tt, {

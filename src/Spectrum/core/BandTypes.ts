@@ -4,4 +4,5 @@ export type Band = {
   freqStartMHz: number;
   freqEndMHz: number;
   color: string;
+  children?: Band[];
 };
