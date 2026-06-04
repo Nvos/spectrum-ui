@@ -227,6 +227,8 @@ export class SpectrumCore {
     bandController.mount(refs.bandContainer, refs.bandTooltip);
     bandController.onHover = (range) => {
       liveRenderer.setHoveredBand(range);
+      if (range) waterfallRenderer.setHighlight(range.normStart, range.normEnd);
+      else waterfallRenderer.clearHighlight();
       scheduleRender();
     };
 

@@ -49,6 +49,8 @@ uniform sampler2D uWaterfallTexture;
 uniform sampler2D uColormapLUT;
 uniform float uPowerMin;
 uniform float uDisplayMax;
+uniform float uHighlightStart;
+uniform float uHighlightEnd;
 
 out vec4 outPixelColor;
 
@@ -60,6 +62,10 @@ void main() {
         0.0, 1.0
     );
     vec3 rgb = texture(uColormapLUT, vec2(normalizedPower, 0.5)).rgb;
+    if (uHighlightStart < uHighlightEnd &&
+        vTexCoord.x >= uHighlightStart && vTexCoord.x <= uHighlightEnd) {
+        rgb = mix(rgb, vec3(1.0), 0.22);
+    }
     outPixelColor = vec4(rgb, 1.0);
 }
 `;
@@ -145,6 +151,8 @@ export class WaterfallRenderer {
   private powerMin: number;
   private displayMax: number;
   private currentLUT: Uint8Array;
+  private highlightStart = 0;
+  private highlightEnd = 0;
 
   constructor(
     rowCount: number,
@@ -242,10 +250,22 @@ export class WaterfallRenderer {
       uViewEnd: this.viewport.end,
       uPowerMin: this.powerMin,
       uDisplayMax: this.displayMax,
+      uHighlightStart: this.highlightStart,
+      uHighlightEnd: this.highlightEnd,
     });
 
     drawBufferInfo(this.ctx, this.bufferInfo, this.ctx.TRIANGLES);
   };
+
+  setHighlight(normStart: number, normEnd: number) {
+    this.highlightStart = normStart;
+    this.highlightEnd = normEnd;
+  }
+
+  clearHighlight() {
+    this.highlightStart = 0;
+    this.highlightEnd = 0;
+  }
 
   setRowCount(n: number) {
     if (n === this.rowCount || !this.ctx) return;

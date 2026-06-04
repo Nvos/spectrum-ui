@@ -58,7 +58,7 @@ const assignRows = (bands: Band[], freqStart: number, freqEnd: number, numRows: 
 };
 
 export class BandController {
-  onHover?: (range: { normStart: number; normEnd: number; hex: string } | null) => void;
+  onHover?: (range: { normStart: number; normEnd: number } | null) => void;
 
   private freqStart: number;
   private freqEnd: number;
@@ -188,7 +188,7 @@ export class BandController {
 
     const { band, normStart, normEnd, parentId } = a;
 
-    this.onHover?.({ normStart, normEnd, hex: BAND_COLORS[band.color] });
+    this.onHover?.({ normStart, normEnd });
 
     const cell = (l: string, v: string, muted = false) =>
       `<span class="${coreStyles.tooltipLabel}"${muted ? ' style="opacity:0.55"' : ""}>${l}</span>` +
