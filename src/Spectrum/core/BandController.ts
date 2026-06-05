@@ -96,6 +96,48 @@ export class BandController {
       pool.push(this.createItem(container));
     }
 
+    // Compute per-assignment label constraints based on visual stacking order.
+    // A label is only readable if it starts in an uncovered region and has enough
+    // width before the next covering band. Two cases handled generically:
+    //   1. Covered from the right: another band starts within this band's range
+    //      → label is constrained to the gap before that band's left edge.
+    //   2. Covered from the left: another band starts at or before this band and
+    //      extends into it → label text would begin invisible → force gap = 0.
+    //
+    // Z-order tiers: overflow = 0 (behind), normal = 1, children = 2 (on top).
+    const zLevel = (a: Assignment): number => (a.overflow ? 0 : a.parentId != null ? 2 : 1);
+    const labelConstraints = new Map<number, number>(); // index → constraining leftNorm
+
+    for (let i = 0; i < assignments.length; i++) {
+      const a = assignments[i];
+      const az = zLevel(a);
+      const aLeft = (a.normStart - viewStart) / viewSpan;
+      const aRight = (a.normEnd - viewStart) / viewSpan;
+      let minC = Infinity;
+
+      for (let j = 0; j < assignments.length; j++) {
+        if (i === j) continue;
+        const b = assignments[j];
+        if (b.row !== a.row) continue;
+        const bz = zLevel(b);
+        if (!(bz > az || (bz === az && j > i))) continue; // b must render on top of a
+
+        const bLeft = (b.normStart - viewStart) / viewSpan;
+        const bRight = (b.normEnd - viewStart) / viewSpan;
+
+        if (bLeft <= aLeft && bRight > aLeft) {
+          // Covered from the left: text would start hidden → force gap = 0
+          minC = aLeft;
+          break;
+        }
+        if (bLeft > aLeft && bLeft < Math.min(aRight, 1.0)) {
+          minC = Math.min(minC, bLeft);
+        }
+      }
+
+      if (minC < Infinity) labelConstraints.set(i, minC);
+    }
+
     assignments.forEach(({ band, row, overflow, normStart, normEnd, parentId }, i) => {
       const item = pool[i];
       this.syncItem(item, band);
@@ -118,10 +160,25 @@ export class BandController {
       el.style.left = `${leftPct}%`;
       el.style.width = `${rightPct - leftPct}%`;
       el.style.top = `${top}px`;
-      el.style.zIndex = parentId != null ? "2" : "1";
+      el.style.zIndex = overflow ? "0" : parentId != null ? "2" : "1";
       el.style.opacity = overflow ? String(OVERFLOW_ALPHA) : "1";
       el.style.borderStyle = overflow ? "dashed" : "solid";
-      label.style.visibility = pixelWidth < MIN_LABEL_PX ? "hidden" : "visible";
+
+      const constraintLeft = labelConstraints.get(i);
+      let showLabel: boolean;
+      let labelWidth = "";
+
+      if (constraintLeft !== undefined) {
+        const visibleLeft = Math.max(0, leftNorm);
+        const gapPx = Math.max(0, constraintLeft - visibleLeft) * containerWidth;
+        showLabel = gapPx >= MIN_LABEL_PX;
+        if (showLabel) labelWidth = `${gapPx}px`;
+      } else {
+        showLabel = pixelWidth >= MIN_LABEL_PX;
+      }
+
+      label.style.visibility = showLabel ? "visible" : "hidden";
+      label.style.width = labelWidth;
     });
 
     for (let i = assignments.length; i < pool.length; i++) {

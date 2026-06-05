@@ -36,7 +36,7 @@ const SUBVIEW_PALETTE = [
   { band: "rgba(255, 100, 130, 0.18)", accent: "#ff6482" },
 ];
 
-const DEFAULT_BINS = 2000;
+const DEFAULT_BINS = 4000;
 const DEFAULT_ROWS = 300;
 
 const DEMO_BANDS: Band[] = [
@@ -258,11 +258,9 @@ const DEMO_BANDS: Band[] = [
     freqStartMHz: 2400,
     freqEndMHz: 2483.5,
     color: "teal",
-    children: [
-      { id: "wifi-24", name: "Wi-Fi 2.4 GHz", freqStartMHz: 2401, freqEndMHz: 2473, color: "teal" },
-      { id: "bt-24", name: "Bluetooth", freqStartMHz: 2402, freqEndMHz: 2480, color: "teal" },
-    ],
   },
+  { id: "wifi-24", name: "Wi-Fi 2.4 GHz", freqStartMHz: 2401, freqEndMHz: 2473, color: "teal" },
+  { id: "bt-24", name: "Bluetooth", freqStartMHz: 2402, freqEndMHz: 2480, color: "teal" },
   {
     id: "wifi-5",
     name: "5 GHz Wi-Fi (U-NII)",
