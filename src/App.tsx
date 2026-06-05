@@ -30,7 +30,7 @@ import type { Band } from "./Spectrum/core/BandTypes";
 
 const SUBVIEW_PALETTE = [
   { band: "rgba(100, 210, 255, 0.18)", accent: "#64d2ff" },
-  { band: "rgba(255, 180, 50, 0.18)",  accent: "#ffb432" },
+  { band: "rgba(255, 180, 50, 0.18)", accent: "#ffb432" },
   { band: "rgba(180, 130, 255, 0.18)", accent: "#b482ff" },
   { band: "rgba(100, 255, 160, 0.18)", accent: "#64ffa0" },
   { band: "rgba(255, 100, 130, 0.18)", accent: "#ff6482" },
@@ -40,103 +40,457 @@ const DEFAULT_BINS = 2000;
 const DEFAULT_ROWS = 300;
 
 const DEMO_BANDS: Band[] = [
-  // ── HF / VHF low (25–88 MHz) ─────────────────────────────────────
-  { id: "vhf-gov",     name: "VHF Gov/Mil",       freqStartMHz: 25,     freqEndMHz: 50,     color: "gray"   },
-  { id: "6m",          name: "6m Amateur",         freqStartMHz: 50,     freqEndMHz: 54,     color: "purple" },
-  { id: "vhf-tv-lo",   name: "VHF TV Low",         freqStartMHz: 54,     freqEndMHz: 72,     color: "gray"   },
-  { id: "rc",          name: "RC Aircraft",        freqStartMHz: 72,     freqEndMHz: 76,     color: "orange" },
-  { id: "vhf-tv-hi",   name: "VHF TV High",        freqStartMHz: 76,     freqEndMHz: 88,     color: "gray"   },
-  // ── VHF (87.5–175 MHz) ───────────────────────────────────────────
-  { id: "fm",          name: "FM Broadcast",       freqStartMHz: 87.5,   freqEndMHz: 108,    color: "orange" },
-  { id: "ils",         name: "ILS / VOR",          freqStartMHz: 108,    freqEndMHz: 118,    color: "yellow" },
-  { id: "airband",     name: "Airband",            freqStartMHz: 108,    freqEndMHz: 137,    color: "cyan",
+  // ───────────────────────────────────────────────────────────────────────
+  // TELECOM — Cellular FDD, sub-1 GHz (low-band coverage layer)
+  // ───────────────────────────────────────────────────────────────────────
+  {
+    id: "n71",
+    name: "n71 — 600 MHz",
+    freqStartMHz: 617,
+    freqEndMHz: 698,
+    color: "blue",
     children: [
-      { id: "guard",   name: "Guard 121.5",        freqStartMHz: 121.4,  freqEndMHz: 121.6,  color: "red"    },
+      { id: "n71-dl", name: "n71 DL", freqStartMHz: 617, freqEndMHz: 652, color: "blue" },
+      { id: "n71-ul", name: "n71 UL", freqStartMHz: 663, freqEndMHz: 698, color: "blue" },
     ],
   },
-  { id: "mil-air",     name: "Military Air",       freqStartMHz: 132,    freqEndMHz: 144,    color: "gray"   },
-  { id: "2m",          name: "2m Amateur",         freqStartMHz: 144,    freqEndMHz: 148,    color: "purple",
+  {
+    id: "n28",
+    name: "n28 — 700 MHz (APT)",
+    freqStartMHz: 703,
+    freqEndMHz: 803,
+    color: "blue",
     children: [
-      { id: "aprs",    name: "APRS 144.8",         freqStartMHz: 144.7,  freqEndMHz: 144.9,  color: "indigo" },
+      { id: "n28-ul", name: "n28 UL", freqStartMHz: 703, freqEndMHz: 748, color: "blue" },
+      { id: "n28-dl", name: "n28 DL", freqStartMHz: 758, freqEndMHz: 803, color: "blue" },
     ],
   },
-  { id: "pager",       name: "Paging",             freqStartMHz: 148,    freqEndMHz: 152,    color: "amber"  },
-  { id: "pub-safety",  name: "Public Safety",      freqStartMHz: 150,    freqEndMHz: 174,    color: "pink"   },
-  { id: "marine",      name: "VHF Marine",         freqStartMHz: 156,    freqEndMHz: 174,    color: "blue",
+  {
+    id: "n12",
+    name: "n12 — 700 MHz (Lower, US)",
+    freqStartMHz: 699,
+    freqEndMHz: 746,
+    color: "blue",
     children: [
-      { id: "ch16",    name: "Distress Ch.16",     freqStartMHz: 156.7,  freqEndMHz: 156.9,  color: "red"    },
-      { id: "noaa",    name: "NOAA Weather",       freqStartMHz: 162.4,  freqEndMHz: 162.6,  color: "green"  },
+      { id: "n12-ul", name: "n12 UL", freqStartMHz: 699, freqEndMHz: 716, color: "blue" },
+      { id: "n12-dl", name: "n12 DL", freqStartMHz: 729, freqEndMHz: 746, color: "blue" },
     ],
   },
-  { id: "vhf156-8",    name: "VHF 156.8",          freqStartMHz: 156.79, freqEndMHz: 156.81, color: "red"    },
-  // ── DAB / UHF (174–500 MHz) ──────────────────────────────────────
-  { id: "dab",         name: "DAB+ Band III",      freqStartMHz: 174,    freqEndMHz: 230,    color: "orange" },
-  { id: "1-25m",       name: "1.25m Amateur",      freqStartMHz: 220,    freqEndMHz: 225,    color: "purple" },
-  { id: "mil-uhf",     name: "Military UHF",       freqStartMHz: 225,    freqEndMHz: 380,    color: "gray"   },
-  { id: "tetra-lo",    name: "TETRA (lo)",         freqStartMHz: 380,    freqEndMHz: 390,    color: "pink"   },
-  { id: "tetra-hi",    name: "TETRA (hi)",         freqStartMHz: 390,    freqEndMHz: 400,    color: "pink"   },
-  { id: "gov-uhf",     name: "Gov UHF",            freqStartMHz: 400,    freqEndMHz: 406,    color: "gray"   },
-  { id: "70cm",        name: "70cm Amateur",       freqStartMHz: 430,    freqEndMHz: 440,    color: "purple" },
-  { id: "drone-433",   name: "Drone 433 ISM",      freqStartMHz: 433.05, freqEndMHz: 434.79, color: "green"  },
-  { id: "pmr446",      name: "PMR 446",            freqStartMHz: 446,    freqEndMHz: 446.2,  color: "pink"   },
-  // ── Cellular 700 MHz ──────────────────────────────────────────────
-  { id: "cell-700",    name: "700 MHz LTE",        freqStartMHz: 703,    freqEndMHz: 803,    color: "teal",
+  {
+    id: "n20",
+    name: "n20 — 800 MHz (EU Digital Dividend)",
+    freqStartMHz: 791,
+    freqEndMHz: 862,
+    color: "blue",
     children: [
-      { id: "cell-700-ul", name: "700 UL",         freqStartMHz: 703,    freqEndMHz: 748,    color: "cyan"   },
-      { id: "cell-700-dl", name: "700 DL",         freqStartMHz: 758,    freqEndMHz: 803,    color: "blue"   },
+      { id: "n20-dl", name: "n20 DL", freqStartMHz: 791, freqEndMHz: 821, color: "blue" },
+      { id: "n20-ul", name: "n20 UL", freqStartMHz: 832, freqEndMHz: 862, color: "blue" },
     ],
   },
-  // ── GSM 850 ────────────────────────────────────────────────────────
-  { id: "gsm850",      name: "GSM 850",            freqStartMHz: 824,    freqEndMHz: 894,    color: "teal",
+  {
+    id: "n5",
+    name: "n5 — 850 MHz",
+    freqStartMHz: 824,
+    freqEndMHz: 894,
+    color: "blue",
     children: [
-      { id: "gsm850-ul", name: "GSM 850 UL",       freqStartMHz: 824,    freqEndMHz: 849,    color: "cyan"   },
-      { id: "gsm850-dl", name: "GSM 850 DL",       freqStartMHz: 869,    freqEndMHz: 894,    color: "blue"   },
+      { id: "n5-ul", name: "n5 UL", freqStartMHz: 824, freqEndMHz: 849, color: "blue" },
+      { id: "n5-dl", name: "n5 DL", freqStartMHz: 869, freqEndMHz: 894, color: "blue" },
     ],
   },
-  { id: "drone-868",   name: "Drone 868 SRD",      freqStartMHz: 863,    freqEndMHz: 870,    color: "green"  },
-  // ── GSM 900 ────────────────────────────────────────────────────────
-  { id: "gsm900",      name: "GSM 900",            freqStartMHz: 880,    freqEndMHz: 960,    color: "teal",
+  {
+    id: "n8",
+    name: "n8 — 900 MHz (GSM)",
+    freqStartMHz: 880,
+    freqEndMHz: 960,
+    color: "blue",
     children: [
-      { id: "gsm900-ul", name: "GSM 900 UL",       freqStartMHz: 880,    freqEndMHz: 915,    color: "cyan"   },
-      { id: "gsm900-dl", name: "GSM 900 DL",       freqStartMHz: 925,    freqEndMHz: 960,    color: "blue"   },
+      { id: "n8-ul", name: "n8 UL", freqStartMHz: 880, freqEndMHz: 915, color: "blue" },
+      { id: "n8-dl", name: "n8 DL", freqStartMHz: 925, freqEndMHz: 960, color: "blue" },
     ],
   },
-  { id: "drone-915",   name: "Drone 915 ISM",      freqStartMHz: 902,    freqEndMHz: 928,    color: "green"  },
-  // ── L-Band / GPS ──────────────────────────────────────────────────
-  { id: "l-band",      name: "L-Band Nav",         freqStartMHz: 960,    freqEndMHz: 1215,   color: "yellow" },
-  { id: "fpv-1200",    name: "FPV 1.2 GHz",        freqStartMHz: 1080,   freqEndMHz: 1360,   color: "amber"  },
-  { id: "gps-l1",      name: "GPS L1",             freqStartMHz: 1572.4, freqEndMHz: 1576.4, color: "yellow" },
-  { id: "glonass-l1",  name: "GLONASS L1",         freqStartMHz: 1593,   freqEndMHz: 1610,   color: "yellow" },
-  // ── DCS 1800 ──────────────────────────────────────────────────────
-  { id: "dcs1800",     name: "DCS 1800",           freqStartMHz: 1710,   freqEndMHz: 1880,   color: "teal",
+
+  // ───────────────────────────────────────────────────────────────────────
+  // TELECOM — Cellular FDD/TDD, 1–3 GHz (capacity layer)
+  // ───────────────────────────────────────────────────────────────────────
+  {
+    id: "n3",
+    name: "n3 — 1800 MHz (DCS)",
+    freqStartMHz: 1710,
+    freqEndMHz: 1880,
+    color: "indigo",
     children: [
-      { id: "dcs1800-ul", name: "DCS 1800 UL",     freqStartMHz: 1710,   freqEndMHz: 1785,   color: "cyan"   },
-      { id: "dcs1800-dl", name: "DCS 1800 DL",     freqStartMHz: 1805,   freqEndMHz: 1880,   color: "blue"   },
+      { id: "n3-ul", name: "n3 UL", freqStartMHz: 1710, freqEndMHz: 1785, color: "indigo" },
+      { id: "n3-dl", name: "n3 DL", freqStartMHz: 1805, freqEndMHz: 1880, color: "indigo" },
     ],
   },
-  // ── UMTS 2100 ─────────────────────────────────────────────────────
-  { id: "umts2100",    name: "UMTS 2100",          freqStartMHz: 1920,   freqEndMHz: 2170,   color: "teal",
+  {
+    id: "n25",
+    name: "n25 — 1900 MHz (PCS, ext.)",
+    freqStartMHz: 1850,
+    freqEndMHz: 1995,
+    color: "indigo",
     children: [
-      { id: "umts-ul", name: "UMTS UL",            freqStartMHz: 1920,   freqEndMHz: 1980,   color: "cyan"   },
-      { id: "umts-dl", name: "UMTS DL",            freqStartMHz: 2110,   freqEndMHz: 2170,   color: "blue"   },
+      { id: "n25-ul", name: "n25 UL", freqStartMHz: 1850, freqEndMHz: 1915, color: "indigo" },
+      { id: "n25-dl", name: "n25 DL", freqStartMHz: 1930, freqEndMHz: 1995, color: "indigo" },
     ],
   },
-  // ── ISM 2.4 GHz / WiFi ────────────────────────────────────────────
-  { id: "ism-24",      name: "ISM 2.4 GHz",        freqStartMHz: 2400,   freqEndMHz: 2500,   color: "yellow" },
-  { id: "wifi-ch1",    name: "WiFi Ch.1",          freqStartMHz: 2401,   freqEndMHz: 2423,   color: "blue"   },
-  { id: "bluetooth",   name: "Bluetooth",          freqStartMHz: 2402,   freqEndMHz: 2480,   color: "indigo" },
-  { id: "wifi-80211n", name: "WiFi 802.11n",       freqStartMHz: 2412,   freqEndMHz: 2462,   color: "blue"   },
-  { id: "wifi-ch6",    name: "WiFi Ch.6",          freqStartMHz: 2426,   freqEndMHz: 2448,   color: "blue"   },
-  { id: "wifi-ch11",   name: "WiFi Ch.11",         freqStartMHz: 2451,   freqEndMHz: 2473,   color: "blue"   },
-  // ── LTE 2600 ──────────────────────────────────────────────────────
-  { id: "lte-2600",    name: "LTE B7 2600",        freqStartMHz: 2500,   freqEndMHz: 2690,   color: "teal",
+  {
+    id: "n1",
+    name: "n1 — 2100 MHz (IMT)",
+    freqStartMHz: 1920,
+    freqEndMHz: 2170,
+    color: "indigo",
     children: [
-      { id: "lte-2600-ul", name: "LTE B7 UL",      freqStartMHz: 2500,   freqEndMHz: 2570,   color: "cyan"   },
-      { id: "lte-2600-dl", name: "LTE B7 DL",      freqStartMHz: 2620,   freqEndMHz: 2690,   color: "blue"   },
+      { id: "n1-ul", name: "n1 UL", freqStartMHz: 1920, freqEndMHz: 1980, color: "indigo" },
+      { id: "n1-dl", name: "n1 DL", freqStartMHz: 2110, freqEndMHz: 2170, color: "indigo" },
     ],
   },
-  // ── 5G NR n77 ─────────────────────────────────────────────────────
-  { id: "5g-n77",      name: "5G NR n77",          freqStartMHz: 2690,   freqEndMHz: 3025,   color: "teal"   },
+  {
+    id: "n66",
+    name: "n66 — AWS-3 (1.7/2.1 GHz)",
+    freqStartMHz: 1710,
+    freqEndMHz: 2200,
+    color: "indigo",
+    children: [
+      { id: "n66-ul", name: "n66 UL", freqStartMHz: 1710, freqEndMHz: 1780, color: "indigo" },
+      { id: "n66-dl", name: "n66 DL", freqStartMHz: 2110, freqEndMHz: 2200, color: "indigo" },
+    ],
+  },
+  {
+    id: "n40",
+    name: "n40 — 2300 MHz (TDD)",
+    freqStartMHz: 2300,
+    freqEndMHz: 2400,
+    color: "indigo",
+  },
+  {
+    id: "n41",
+    name: "n41 — 2500 MHz (TDD, BRS/EBS)",
+    freqStartMHz: 2496,
+    freqEndMHz: 2690,
+    color: "indigo",
+  },
+  {
+    id: "n7",
+    name: "n7 — 2600 MHz (FDD)",
+    freqStartMHz: 2500,
+    freqEndMHz: 2690,
+    color: "indigo",
+    children: [
+      { id: "n7-ul", name: "n7 UL", freqStartMHz: 2500, freqEndMHz: 2570, color: "indigo" },
+      { id: "n7-dl", name: "n7 DL", freqStartMHz: 2620, freqEndMHz: 2690, color: "indigo" },
+    ],
+  },
+
+  // ───────────────────────────────────────────────────────────────────────
+  // TELECOM — 5G NR mid-band, 3–6 GHz (the C-band core of 5G)
+  // ───────────────────────────────────────────────────────────────────────
+  {
+    id: "n77",
+    name: "n77 — 3.7 GHz (TDD)",
+    freqStartMHz: 3300,
+    freqEndMHz: 4200,
+    color: "purple",
+  },
+  {
+    id: "n78",
+    name: "n78 — C-band (3.5 GHz, TDD)",
+    freqStartMHz: 3300,
+    freqEndMHz: 3800,
+    color: "purple",
+  },
+  {
+    id: "n48",
+    name: "n48 — CBRS (3.5 GHz, TDD)",
+    freqStartMHz: 3550,
+    freqEndMHz: 3700,
+    color: "purple",
+  },
+  {
+    id: "n79",
+    name: "n79 — 4.7 GHz (TDD)",
+    freqStartMHz: 4400,
+    freqEndMHz: 5000,
+    color: "purple",
+  },
+
+  // ───────────────────────────────────────────────────────────────────────
+  // TELECOM — 5G NR mmWave, FR2 (24–48 GHz)
+  // ───────────────────────────────────────────────────────────────────────
+  {
+    id: "n258",
+    name: "n258 — 26 GHz mmWave",
+    freqStartMHz: 24250,
+    freqEndMHz: 27500,
+    color: "pink",
+  },
+  {
+    id: "n257",
+    name: "n257 — 28 GHz mmWave",
+    freqStartMHz: 26500,
+    freqEndMHz: 29500,
+    color: "pink",
+    children: [
+      {
+        id: "n261",
+        name: "n261 — 28 GHz (US)",
+        freqStartMHz: 27500,
+        freqEndMHz: 28350,
+        color: "pink",
+      },
+    ],
+  },
+  {
+    id: "n260",
+    name: "n260 — 39 GHz mmWave",
+    freqStartMHz: 37000,
+    freqEndMHz: 40000,
+    color: "pink",
+  },
+
+  // ───────────────────────────────────────────────────────────────────────
+  // TELECOM — Wi-Fi / WLAN
+  // ───────────────────────────────────────────────────────────────────────
+  {
+    id: "ism-24",
+    name: "2.4 GHz ISM (Wi-Fi / BT)",
+    freqStartMHz: 2400,
+    freqEndMHz: 2483.5,
+    color: "teal",
+    children: [
+      { id: "wifi-24", name: "Wi-Fi 2.4 GHz", freqStartMHz: 2401, freqEndMHz: 2473, color: "teal" },
+      { id: "bt-24", name: "Bluetooth", freqStartMHz: 2402, freqEndMHz: 2480, color: "teal" },
+    ],
+  },
+  {
+    id: "wifi-5",
+    name: "5 GHz Wi-Fi (U-NII)",
+    freqStartMHz: 5150,
+    freqEndMHz: 5850,
+    color: "teal",
+    children: [
+      { id: "unii-1", name: "U-NII-1", freqStartMHz: 5150, freqEndMHz: 5250, color: "teal" },
+      { id: "unii-2a", name: "U-NII-2A", freqStartMHz: 5250, freqEndMHz: 5350, color: "teal" },
+      { id: "unii-2c", name: "U-NII-2C/2E", freqStartMHz: 5470, freqEndMHz: 5725, color: "teal" },
+      { id: "unii-3", name: "U-NII-3", freqStartMHz: 5725, freqEndMHz: 5850, color: "teal" },
+    ],
+  },
+  {
+    id: "wifi-6e",
+    name: "6 GHz Wi-Fi (6E/7)",
+    freqStartMHz: 5925,
+    freqEndMHz: 7125,
+    color: "teal",
+    children: [
+      { id: "unii-5", name: "U-NII-5", freqStartMHz: 5925, freqEndMHz: 6425, color: "teal" },
+      { id: "unii-6", name: "U-NII-6", freqStartMHz: 6425, freqEndMHz: 6525, color: "teal" },
+      { id: "unii-7", name: "U-NII-7", freqStartMHz: 6525, freqEndMHz: 6875, color: "teal" },
+      { id: "unii-8", name: "U-NII-8", freqStartMHz: 6875, freqEndMHz: 7125, color: "teal" },
+    ],
+  },
+  {
+    id: "wigig-60",
+    name: "60 GHz WiGig (11ad/ay)",
+    freqStartMHz: 57000,
+    freqEndMHz: 71000,
+    color: "teal",
+  },
+
+  // ───────────────────────────────────────────────────────────────────────
+  // TELECOM — Sub-GHz short-range / ISM (IoT, telemetry, LPWAN)
+  // ───────────────────────────────────────────────────────────────────────
+  {
+    id: "ism-433",
+    name: "433 MHz ISM",
+    freqStartMHz: 433.05,
+    freqEndMHz: 434.79,
+    color: "cyan",
+  },
+  {
+    id: "ism-868",
+    name: "868 MHz SRD (EU)",
+    freqStartMHz: 863,
+    freqEndMHz: 870,
+    color: "cyan",
+  },
+  {
+    id: "ism-915",
+    name: "915 MHz ISM (US)",
+    freqStartMHz: 902,
+    freqEndMHz: 928,
+    color: "cyan",
+  },
+
+  // ───────────────────────────────────────────────────────────────────────
+  // GNSS — grouped by band; children are per-constellation signals
+  // ───────────────────────────────────────────────────────────────────────
+  {
+    id: "gnss-l5",
+    name: "GNSS L5 / E5 (1176 MHz)",
+    freqStartMHz: 1164,
+    freqEndMHz: 1217,
+    color: "amber",
+    children: [
+      { id: "gps-l5", name: "GPS L5", freqStartMHz: 1166.22, freqEndMHz: 1186.68, color: "amber" },
+      {
+        id: "gal-e5a",
+        name: "Galileo E5a",
+        freqStartMHz: 1166.22,
+        freqEndMHz: 1186.68,
+        color: "amber",
+      },
+      {
+        id: "gal-e5b",
+        name: "Galileo E5b",
+        freqStartMHz: 1196.91,
+        freqEndMHz: 1217.37,
+        color: "amber",
+      },
+      { id: "glo-l3", name: "GLONASS L3", freqStartMHz: 1190, freqEndMHz: 1212, color: "amber" },
+      {
+        id: "bds-b2a",
+        name: "BeiDou B2a/B2b",
+        freqStartMHz: 1166.22,
+        freqEndMHz: 1217.37,
+        color: "amber",
+      },
+    ],
+  },
+  {
+    id: "gnss-l2",
+    name: "GNSS L2 (1227 MHz)",
+    freqStartMHz: 1215,
+    freqEndMHz: 1254,
+    color: "amber",
+    children: [
+      { id: "gps-l2", name: "GPS L2", freqStartMHz: 1217.37, freqEndMHz: 1237.83, color: "amber" },
+      {
+        id: "glo-l2",
+        name: "GLONASS L2",
+        freqStartMHz: 1242.94,
+        freqEndMHz: 1248.63,
+        color: "amber",
+      },
+    ],
+  },
+  {
+    id: "gnss-e6",
+    name: "GNSS E6 / B3 (1268–1279 MHz)",
+    freqStartMHz: 1258,
+    freqEndMHz: 1300,
+    color: "amber",
+    children: [
+      {
+        id: "bds-b3",
+        name: "BeiDou B3",
+        freqStartMHz: 1258.29,
+        freqEndMHz: 1278.75,
+        color: "amber",
+      },
+      { id: "gal-e6", name: "Galileo E6", freqStartMHz: 1260, freqEndMHz: 1300, color: "amber" },
+    ],
+  },
+  {
+    id: "gnss-l1",
+    name: "GNSS L1 / E1 (1575 MHz)",
+    freqStartMHz: 1559,
+    freqEndMHz: 1610,
+    color: "amber",
+    children: [
+      {
+        id: "bds-b1i",
+        name: "BeiDou B1I",
+        freqStartMHz: 1559.05,
+        freqEndMHz: 1563.14,
+        color: "amber",
+      },
+      {
+        id: "gps-l1",
+        name: "GPS L1 / Galileo E1 / BeiDou B1C",
+        freqStartMHz: 1563.42,
+        freqEndMHz: 1587.42,
+        color: "amber",
+      },
+      {
+        id: "glo-l1",
+        name: "GLONASS L1",
+        freqStartMHz: 1593.9,
+        freqEndMHz: 1609.9,
+        color: "amber",
+      },
+    ],
+  },
+  {
+    id: "gnss-navic-s",
+    name: "NavIC S-band",
+    freqStartMHz: 2483.5,
+    freqEndMHz: 2500,
+    color: "amber",
+  },
+
+  // ───────────────────────────────────────────────────────────────────────
+  // DRONES — control, telemetry, FPV video, and UAS command-and-control
+  // (these overlap ISM/Wi-Fi bands by design; kept distinct for the drone lane)
+  // ───────────────────────────────────────────────────────────────────────
+  {
+    id: "drone-433",
+    name: "Drone 433 MHz (telemetry)",
+    freqStartMHz: 433.05,
+    freqEndMHz: 434.79,
+    color: "red",
+  },
+  {
+    id: "drone-900",
+    name: "Drone 900 MHz (long-range C2)",
+    freqStartMHz: 902,
+    freqEndMHz: 928,
+    color: "red",
+  },
+  {
+    id: "drone-13",
+    name: "Drone 1.3 GHz FPV video",
+    freqStartMHz: 1240,
+    freqEndMHz: 1300,
+    color: "red",
+  },
+  {
+    id: "drone-24",
+    name: "Drone 2.4 GHz (control + video)",
+    freqStartMHz: 2400,
+    freqEndMHz: 2483.5,
+    color: "red",
+  },
+  {
+    id: "uas-c2",
+    name: "UAS C2 link (CNPC, AeroMACS-adj.)",
+    freqStartMHz: 5030,
+    freqEndMHz: 5091,
+    color: "red",
+  },
+  {
+    id: "drone-58",
+    name: "Drone 5.8 GHz FPV video",
+    freqStartMHz: 5650,
+    freqEndMHz: 5925,
+    color: "red",
+    children: [
+      {
+        id: "fpv-raceband",
+        name: "FPV Raceband",
+        freqStartMHz: 5658,
+        freqEndMHz: 5917,
+        color: "red",
+      },
+      {
+        id: "fpv-ism",
+        name: "5.8 GHz ISM core",
+        freqStartMHz: 5725,
+        freqEndMHz: 5875,
+        color: "red",
+      },
+    ],
+  },
 ];
 
 const decodeHydration = (payload: HydrationPayload): SpectrumInitialData => {
@@ -314,9 +668,11 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
       },
       onReset: () => console.log("[spectrum] reset all"),
       onProfileRangeChange: (id, startMHz, endMHz) => {
-        setProfileRanges(profileRangesRef.current.map((r) =>
-          r.id === id ? { ...r, freqStartMHz: startMHz, freqEndMHz: endMHz } : r,
-        ));
+        setProfileRanges(
+          profileRangesRef.current.map((r) =>
+            r.id === id ? { ...r, freqStartMHz: startMHz, freqEndMHz: endMHz } : r,
+          ),
+        );
       },
     });
     return { frameBuffer: fb, core: c };
@@ -343,7 +699,7 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
   // Keep flex map in sync with subviewDefs: new ids get the average flex of existing ones
   // so a freshly added subview starts at equal share; removed ids are dropped.
   useEffect(() => {
-    setSubviewFlexMap(prev => {
+    setSubviewFlexMap((prev) => {
       const vals = Object.values(prev);
       const avg = vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : 1;
       const next: Record<number, number> = {};
@@ -366,12 +722,13 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
     if (!container) return;
 
     const cs = getComputedStyle(container);
-    const availW = container.clientWidth
-      - parseFloat(cs.paddingLeft)
-      - parseFloat(cs.paddingRight)
-      - (subviewDefs.length - 1) * HANDLE_WIDTH_PX;
+    const availW =
+      container.clientWidth -
+      parseFloat(cs.paddingLeft) -
+      parseFloat(cs.paddingRight) -
+      (subviewDefs.length - 1) * HANDLE_WIDTH_PX;
 
-    const startFlexes = subviewDefs.map(def => subviewFlexMap[def.id] ?? 1);
+    const startFlexes = subviewDefs.map((def) => subviewFlexMap[def.id] ?? 1);
     const totalFlex = startFlexes.reduce((a, b) => a + b, 0);
     const minFlex = (MIN_SUBVIEW_WIDTH_PX / availW) * totalFlex;
     const leftId = subviewDefs[leftIdx].id;
@@ -379,8 +736,11 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
 
     const onMove = (me: PointerEvent) => {
       const raw = ((me.clientX - startX) / availW) * totalFlex;
-      const delta = Math.max(-(startFlexes[leftIdx] - minFlex), Math.min(startFlexes[leftIdx + 1] - minFlex, raw));
-      setSubviewFlexMap(prev => ({
+      const delta = Math.max(
+        -(startFlexes[leftIdx] - minFlex),
+        Math.min(startFlexes[leftIdx + 1] - minFlex, raw),
+      );
+      setSubviewFlexMap((prev) => ({
         ...prev,
         [leftId]: startFlexes[leftIdx] + delta,
         [rightId]: startFlexes[leftIdx + 1] - delta,
@@ -415,7 +775,7 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
 
   useEffect(() => {
     setBands(DEMO_BANDS);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const handleLayerToggle = (id: LayerName, visible: boolean) =>
     setLayerVisibility((prev) => ({ ...prev, [id]: visible }));
@@ -560,21 +920,31 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
           Clear
         </button>
       </div>
-      <div className={styles.spectrumContainer}>{core && <Spectrum core={core} profileRanges={profileRanges} bands={bands} />}</div>
+      <div className={styles.spectrumContainer}>
+        {core && <Spectrum core={core} profileRanges={profileRanges} bands={bands} />}
+      </div>
       {profileDrawerOpen && (
         <>
           <div className={styles.drawerOverlay} onClick={() => setProfileDrawerOpen(false)} />
           <div className={styles.drawer}>
             <div className={styles.drawerHeader}>
               <span className={styles.drawerTitle}>Profile Ranges</span>
-              <button className={styles.button.inactive} onClick={() => setProfileDrawerOpen(false)}>✕</button>
+              <button
+                className={styles.button.inactive}
+                onClick={() => setProfileDrawerOpen(false)}
+              >
+                ✕
+              </button>
             </div>
             <div className={styles.drawerBody}>
               {config && (
                 <ProfilePanel
                   ranges={profileRanges}
                   freqStartMHz={config.params.freqStart / 1000}
-                  freqEndMHz={(config.params.freqStart + config.params.binCount * config.params.resolution) / 1000}
+                  freqEndMHz={
+                    (config.params.freqStart + config.params.binCount * config.params.resolution) /
+                    1000
+                  }
                   onChange={setProfileRanges}
                 />
               )}
@@ -595,7 +965,7 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
                   onPointerDown={(e) => handleResizePointerDown(e, i - 1)}
                 >
                   <div className={styles.resizeHandleBar} />
-                </div>
+                </div>,
               );
             }
             elements.push(
@@ -605,7 +975,9 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
                 style={{ borderTop: `2px solid ${accent}`, flex: subviewFlexMap[def.id] ?? 1 }}
               >
                 <div className={styles.subviewHeader}>
-                  <span style={{ color: accent }}>{(def.freqStart / 1000).toFixed(0)}–{(def.freqEnd / 1000).toFixed(0)} MHz</span>
+                  <span style={{ color: accent }}>
+                    {(def.freqStart / 1000).toFixed(0)}–{(def.freqEnd / 1000).toFixed(0)} MHz
+                  </span>
                   <button
                     onClick={() => setSubviewDefs((prev) => prev.filter((d) => d.id !== def.id))}
                     className={styles.button.inactive}
@@ -614,7 +986,7 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
                   </button>
                 </div>
                 <SpectrumSubview core={core} freqStart={def.freqStart} freqEnd={def.freqEnd} />
-              </div>
+              </div>,
             );
             return elements;
           })}
