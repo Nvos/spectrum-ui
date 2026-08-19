@@ -7,9 +7,12 @@ implements session metadata, immutable aligned page batches, timestamp seek, spa
 annotations, and a live stream in the same backend-assigned `seq` space. The client now
 uses the backend extent for its scrollbar, fetches settled historical windows in
 cancelable batches, prefetches one neighboring page, and keeps a bounded page cache next
-to the live ring. The mock backend retains the whole active session in memory. Per-page
-aggregates, compression, a bounded production retention policy, overview decimation,
-and the WebSocket transport remain follow-up work.
+to the live ring. The mock backend keeps a fixed hot ring in memory and appends each
+completed page as one record in segmented files, so active-session history can grow on
+disk without growing spectrum memory. Recording manifests and a catalog make completed
+or interrupted sessions available after restart through the same page and seek model.
+Per-page aggregates, compression, a replay-selection UI, a bounded production retention
+policy, overview decimation, and the WebSocket transport remain follow-up work.
 
 The client keeps a 4096-row in-memory ring and scrolls it (phase 1). Phase 2 makes that
 ring a **cache window over backend history** rather than the archive itself.

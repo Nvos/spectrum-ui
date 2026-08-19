@@ -1,18 +1,26 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"math"
 	"math/rand/v2"
 	"net/http"
+	"os"
+	osSignal "os/signal"
+	"path/filepath"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -26,13 +34,16 @@ const (
 	occupancyThreshold = -85
 	powerNoReading     = -128
 	maxBatchPages      = 8
+	defaultHotRows     = 4_096
+	defaultSegmentMB   = 1_024
 )
 
 type captureConfig struct {
-	FreqStart   int64 `json:"freqStart"`
-	Resolution  int64 `json:"resolution"`
-	BinCount    int   `json:"binCount"`
-	HistoryRows int   `json:"historyRows,omitempty"`
+	Name        string `json:"name,omitempty"`
+	FreqStart   int64  `json:"freqStart"`
+	Resolution  int64  `json:"resolution"`
+	BinCount    int    `json:"binCount"`
+	HistoryRows int    `json:"historyRows,omitempty"`
 }
 
 type retention struct {
@@ -75,36 +86,69 @@ type signal struct {
 }
 
 type capture struct {
-	mu          sync.RWMutex
-	id          string
-	config      captureConfig
-	pageRows    int
-	startedAt   int64
-	seqStart    uint64
-	seqEnd      uint64
-	rows        []row
-	subscribers map[chan row]struct{}
-	signals     []signal
-	cancel      context.CancelFunc
+	mu            sync.RWMutex
+	id            string
+	config        captureConfig
+	pageRows      int
+	createdAt     int64
+	startedAt     int64
+	seqStart      uint64
+	seqEnd        uint64
+	durableSeqEnd uint64
+	hotRows       []row
+	hotStart      uint64
+	tail          []row
+	timestamps    []float64
+	store         *pageStore
+	manifestPath  string
+	finalManifest *recordingManifest
+	subscribers   map[chan row]struct{}
+	signals       []signal
+	cancel        context.CancelFunc
+	stopOnce      sync.Once
 }
 
 type server struct {
-	mu      sync.RWMutex
-	current *capture
+	mu           sync.RWMutex
+	current      *capture
+	dataDir      string
+	segmentBytes int64
+	recordings   map[string]*recording
 }
 
 func main() {
 	address := flag.String("addr", defaultAddress, "HTTP listen address")
+	dataDir := flag.String("data-dir", "data", "directory for capture history files")
+	segmentMB := flag.Int64("segment-mb", defaultSegmentMB, "maximum segment file size in MiB")
+	recordingName := flag.String("recording-name", "", "optional name for the startup recording")
 	flag.Parse()
+	if *segmentMB <= 0 {
+		log.Fatal("segment-mb must be positive")
+	}
 
-	s := &server{}
-	s.replaceCapture(captureConfig{FreqStart: defaultFrequency, Resolution: defaultResolution, BinCount: defaultBinCount})
+	s, err := newServer(*dataDir, *segmentMB<<20)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if _, err := s.replaceCapture(captureConfig{Name: *recordingName, FreqStart: defaultFrequency, Resolution: defaultResolution, BinCount: defaultBinCount}); err != nil {
+		log.Fatal(err)
+	}
+	defer s.close()
 
 	httpServer := &http.Server{
 		Addr:              *address,
 		Handler:           s.routes(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
+	shutdownSignal := make(chan os.Signal, 1)
+	osSignal.Notify(shutdownSignal, os.Interrupt, syscall.SIGTERM)
+	defer osSignal.Stop(shutdownSignal)
+	go func() {
+		<-shutdownSignal
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = httpServer.Shutdown(ctx)
+	}()
 	log.Printf("Spectrum mock API listening on http://%s", *address)
 	if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
@@ -120,6 +164,10 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /api/captures/{sessionID}/pages", s.capturePages)
 	mux.HandleFunc("GET /api/captures/{sessionID}/seek", s.captureSeek)
 	mux.HandleFunc("GET /api/captures/{sessionID}/live", s.captureLive)
+	mux.HandleFunc("GET /api/recordings", s.listRecordings)
+	mux.HandleFunc("GET /api/recordings/{recordingID}", s.recordingMetadata)
+	mux.HandleFunc("GET /api/recordings/{recordingID}/pages", s.recordingPages)
+	mux.HandleFunc("GET /api/recordings/{recordingID}/seek", s.recordingSeek)
 	return withMiddleware(mux)
 }
 
@@ -156,11 +204,19 @@ func (s *server) createCapture(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "freqStart must be non-negative, resolution positive, and binCount between 64 and 8192")
 		return
 	}
+	if len(strings.TrimSpace(cfg.Name)) > 128 {
+		writeError(w, http.StatusBadRequest, "name must be at most 128 characters")
+		return
+	}
 	if cfg.HistoryRows < 512 || cfg.HistoryRows > 8_192 || cfg.HistoryRows&(cfg.HistoryRows-1) != 0 {
 		writeError(w, http.StatusBadRequest, "historyRows must be a power of two between 512 and 8192")
 		return
 	}
-	c := s.replaceCapture(cfg)
+	c, err := s.replaceCapture(cfg)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not create capture storage")
+		return
+	}
 	writeJSON(w, http.StatusCreated, c.metadata())
 }
 
@@ -179,6 +235,10 @@ func (s *server) capturePages(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "capture session changed")
 		return
 	}
+	s.servePages(w, r, c, c.id)
+}
+
+func (s *server) servePages(w http.ResponseWriter, r *http.Request, source recordingSource, recordingID string) {
 	from, err := strconv.ParseUint(r.URL.Query().Get("from"), 10, 64)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "from must be a page index")
@@ -193,7 +253,11 @@ func (s *server) capturePages(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	pages, status := c.pages(from, count)
+	pages, status, err := source.pagePayloads(from, count)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not read capture history")
+		return
+	}
 	if status != http.StatusOK {
 		message := "page not available"
 		if status == http.StatusGone {
@@ -204,9 +268,9 @@ func (s *server) capturePages(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-	w.Header().Set("ETag", fmt.Sprintf("\"%s/p/%d/%d\"", c.id, from, count))
+	w.Header().Set("ETag", fmt.Sprintf("\"%s/p/%d/%d\"", recordingID, from, count))
 	for _, page := range pages {
-		if err := writePage(w, page, c.config.BinCount); err != nil {
+		if _, err := w.Write(page); err != nil {
 			return
 		}
 	}
@@ -218,17 +282,63 @@ func (s *server) captureSeek(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "capture session changed")
 		return
 	}
+	s.serveSeek(w, r, c)
+}
+
+func (s *server) serveSeek(w http.ResponseWriter, r *http.Request, source recordingSource) {
 	timestamp, err := strconv.ParseInt(r.URL.Query().Get("t"), 10, 64)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "t must be epoch milliseconds")
 		return
 	}
-	seq, found := c.seek(timestamp)
+	seq, found := source.seek(timestamp)
 	if !found {
 		writeError(w, http.StatusNotFound, "capture has no rows")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]uint64{"seq": seq})
+}
+
+func (s *server) listRecordings(w http.ResponseWriter, _ *http.Request) {
+	items := make([]recordingManifest, 0)
+	current := s.getCurrent()
+	if current != nil {
+		items = append(items, current.recordingInfo())
+	}
+	s.mu.RLock()
+	for _, item := range s.recordings {
+		items = append(items, item.recordingInfo())
+	}
+	s.mu.RUnlock()
+	sort.Slice(items, func(left, right int) bool { return items[left].StartedAt > items[right].StartedAt })
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (s *server) recordingMetadata(w http.ResponseWriter, r *http.Request) {
+	source, ok := s.recordingForID(r.PathValue("recordingID"))
+	if !ok {
+		writeError(w, http.StatusNotFound, "recording not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, source.recordingInfo())
+}
+
+func (s *server) recordingPages(w http.ResponseWriter, r *http.Request) {
+	source, ok := s.recordingForID(r.PathValue("recordingID"))
+	if !ok {
+		writeError(w, http.StatusNotFound, "recording not found")
+		return
+	}
+	s.servePages(w, r, source, source.recordingInfo().RecordingID)
+}
+
+func (s *server) recordingSeek(w http.ResponseWriter, r *http.Request) {
+	source, ok := s.recordingForID(r.PathValue("recordingID"))
+	if !ok {
+		writeError(w, http.StatusNotFound, "recording not found")
+		return
+	}
+	s.serveSeek(w, r, source)
 }
 
 func (s *server) captureLive(w http.ResponseWriter, r *http.Request) {
@@ -296,40 +406,117 @@ func (s *server) getCurrent() *capture {
 	return s.current
 }
 
-func (s *server) replaceCapture(cfg captureConfig) *capture {
-	c := newCapture(cfg)
+func newServer(dataDir string, segmentBytes int64) (*server, error) {
+	recordings, warnings, err := loadRecordingCatalog(dataDir, segmentBytes)
+	if err != nil {
+		return nil, fmt.Errorf("load recording catalog: %w", err)
+	}
+	for _, warning := range warnings {
+		log.Print(warning)
+	}
+	return &server{dataDir: dataDir, segmentBytes: segmentBytes, recordings: recordings}, nil
+}
+
+func (s *server) recordingForID(id string) (recordingSource, bool) {
+	current := s.getCurrent()
+	if current != nil && current.id == id {
+		return current, true
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	recording, ok := s.recordings[id]
+	return recording, ok
+}
+
+func (s *server) close() {
+	current := s.getCurrent()
+	if current != nil {
+		current.stop()
+	}
+	s.mu.RLock()
+	recordings := make([]*recording, 0, len(s.recordings))
+	for _, item := range s.recordings {
+		recordings = append(recordings, item)
+	}
+	s.mu.RUnlock()
+	for _, item := range recordings {
+		_ = item.store.Close()
+	}
+}
+
+func (s *server) replaceCapture(cfg captureConfig) (*capture, error) {
+	c, err := newCapture(cfg, s.dataDir, s.segmentBytes)
+	if err != nil {
+		return nil, err
+	}
 	s.mu.Lock()
 	previous := s.current
 	s.current = c
 	s.mu.Unlock()
 	if previous != nil {
-		previous.stop()
+		archived := previous.archiveRecording()
+		s.mu.Lock()
+		if s.recordings == nil {
+			s.recordings = make(map[string]*recording)
+		}
+		s.recordings[previous.id] = archived
+		s.mu.Unlock()
 	}
 	c.start()
-	return c
+	log.Printf("Started recording %s (%s)", c.id, c.config.Name)
+	return c, nil
 }
 
-func newCapture(cfg captureConfig) *capture {
+func newCapture(cfg captureConfig, dataDir string, segmentBytes int64) (*capture, error) {
+	if len(strings.TrimSpace(cfg.Name)) > 128 {
+		return nil, errors.New("recording name must be at most 128 characters")
+	}
 	if cfg.HistoryRows <= 0 {
-		cfg.HistoryRows = 4_096
+		cfg.HistoryRows = defaultHotRows
+	}
+	if segmentBytes <= 0 {
+		segmentBytes = int64(defaultSegmentMB) << 20
 	}
 	pageRows := pageRowsFor(cfg.BinCount)
 	now := time.Now()
+	id := fmt.Sprintf("cap_%x", now.UnixNano())
+	if strings.TrimSpace(cfg.Name) == "" {
+		cfg.Name = defaultRecordingName(now.UnixMilli())
+	} else {
+		cfg.Name = strings.TrimSpace(cfg.Name)
+	}
+	store, err := openPageStore(filepath.Join(dataDir, id), segmentBytes)
+	if err != nil {
+		return nil, err
+	}
+	hotCapacity := max(defaultHotRows, cfg.HistoryRows)
 	c := &capture{
-		id:          fmt.Sprintf("cap_%x", now.UnixNano()),
-		config:      cfg,
-		pageRows:    pageRows,
-		startedAt:   now.UnixMilli() - int64(initialRows-1)*tickInterval.Milliseconds(),
-		rows:        make([]row, 0, initialRows),
-		subscribers: make(map[chan row]struct{}),
-		signals:     defaultSignals(),
-		cancel:      func() {},
+		id:           id,
+		config:       cfg,
+		pageRows:     pageRows,
+		createdAt:    now.UnixMilli(),
+		startedAt:    now.UnixMilli() - int64(initialRows-1)*tickInterval.Milliseconds(),
+		hotRows:      make([]row, hotCapacity),
+		tail:         make([]row, 0, pageRows),
+		timestamps:   make([]float64, 0, initialRows),
+		store:        store,
+		manifestPath: filepath.Join(dataDir, id, manifestFilename),
+		subscribers:  make(map[chan row]struct{}),
+		signals:      defaultSignals(),
+		cancel:       func() {},
+	}
+	if err := c.persistManifestLocked(recordingStateActive, nil); err != nil {
+		_ = store.Close()
+		return nil, fmt.Errorf("create recording manifest: %w", err)
 	}
 	for i := 0; i < initialRows; i++ {
 		timestamp := now.Add(-time.Duration(initialRows-1-i) * tickInterval)
-		c.appendGenerated(timestamp)
+		if err := c.appendGenerated(timestamp); err != nil {
+			_ = store.Close()
+			return nil, fmt.Errorf("seed capture history: %w", err)
+		}
 	}
-	return c
+	return c, nil
 }
 
 func (c *capture) start() {
@@ -344,28 +531,103 @@ func (c *capture) start() {
 			case <-ctx.Done():
 				return
 			case now := <-ticker.C:
-				c.appendGenerated(now)
+				if err := c.appendGenerated(now); err != nil {
+					log.Printf("capture %s stopped: %v", c.id, err)
+					return
+				}
 			}
 		}
 	}()
 }
 
 func (c *capture) stop() {
-	c.cancel()
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	for subscriber := range c.subscribers {
-		close(subscriber)
-		delete(c.subscribers, subscriber)
-	}
+	c.finish(true)
 }
 
-func (c *capture) appendGenerated(timestamp time.Time) {
+func (c *capture) archiveRecording() *recording {
+	c.finish(false)
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	manifest := *c.finalManifest
+	return &recording{manifest: manifest, store: c.store}
+}
+
+func (c *capture) finish(closeStore bool) {
+	c.stopOnce.Do(func() {
+		c.cancel()
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		for subscriber := range c.subscribers {
+			close(subscriber)
+			delete(c.subscribers, subscriber)
+		}
+		if len(c.tail) > 0 {
+			payload, err := encodePage(c.tail, c.config.BinCount)
+			if err == nil {
+				err = c.store.Append(payload)
+			}
+			if err != nil {
+				log.Printf("finalize recording %s tail: %v", c.id, err)
+			} else {
+				c.durableSeqEnd = c.seqEnd
+				c.tail = c.tail[:0]
+			}
+		}
+		endedAt := time.Now().UnixMilli()
+		manifest := c.manifestLocked(recordingStateComplete, &endedAt)
+		c.finalManifest = &manifest
+		if err := writeManifestAtomic(c.manifestPath, manifest); err != nil {
+			log.Printf("complete recording %s manifest: %v", c.id, err)
+		}
+		if closeStore {
+			if err := c.store.Close(); err != nil {
+				log.Printf("close capture %s storage: %v", c.id, err)
+			}
+		}
+	})
+}
+
+func (c *capture) appendGenerated(timestamp time.Time) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	item := c.generateRow(timestamp)
-	c.rows = append(c.rows, item)
+	return c.appendRowLocked(item)
+}
+
+func (c *capture) appendRow(item row) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	item.Seq = c.seqEnd
+	return c.appendRowLocked(item)
+}
+
+func (c *capture) appendRowLocked(item row) error {
+	item.Seq = c.seqEnd
+	if len(c.tail)+1 == c.pageRows {
+		page := make([]row, c.pageRows)
+		copy(page, c.tail)
+		page[len(page)-1] = item
+		payload, err := encodePage(page, c.config.BinCount)
+		if err != nil {
+			return err
+		}
+		if err := c.store.Append(payload); err != nil {
+			return err
+		}
+		c.durableSeqEnd = item.Seq + 1
+		if err := c.persistManifestLocked(recordingStateActive, nil); err != nil {
+			log.Printf("update recording %s manifest: %v", c.id, err)
+		}
+		c.tail = c.tail[:0]
+	} else {
+		c.tail = append(c.tail, item)
+	}
+	c.hotRows[item.Seq%uint64(len(c.hotRows))] = item
+	c.timestamps = append(c.timestamps, item.TimestampMS)
 	c.seqEnd++
+	if c.seqEnd > uint64(len(c.hotRows)) {
+		c.hotStart = c.seqEnd - uint64(len(c.hotRows))
+	}
 	for subscriber := range c.subscribers {
 		select {
 		case subscriber <- item:
@@ -373,6 +635,34 @@ func (c *capture) appendGenerated(timestamp time.Time) {
 			close(subscriber)
 			delete(c.subscribers, subscriber)
 		}
+	}
+	return nil
+}
+
+func (c *capture) recordingInfo() recordingManifest {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	manifest := c.manifestLocked(recordingStateActive, nil)
+	manifest.SeqEnd = c.seqEnd
+	manifest.Retention.Rows = int(c.seqEnd - c.seqStart)
+	return manifest
+}
+
+func (c *capture) persistManifestLocked(state string, endedAt *int64) error {
+	return writeManifestAtomic(c.manifestPath, c.manifestLocked(state, endedAt))
+}
+
+func (c *capture) manifestLocked(state string, endedAt *int64) recordingManifest {
+	pageCount := c.store.PageCount()
+	seqEnd := c.durableSeqEnd
+	return recordingManifest{
+		FormatVersion: recordingFormatVersion, RecordingID: c.id, SessionID: c.id, Name: c.config.Name, State: state,
+		FreqStart: c.config.FreqStart, Resolution: c.config.Resolution, BinCount: c.config.BinCount,
+		HistoryRows: c.config.HistoryRows, PageRows: c.pageRows, SeqStart: c.seqStart, SeqEnd: seqEnd,
+		PageCount: pageCount, CreatedAt: c.createdAt, StartedAt: c.startedAt, EndedAt: endedAt,
+		Retention:  retention{Rows: int(seqEnd - c.seqStart), Policy: "session"},
+		LiveFormat: "spectrum-live-binary-v1", SegmentBytes: c.store.maxSegmentBytes,
+		Segments: c.store.SegmentNames(),
 	}
 }
 
@@ -434,32 +724,31 @@ func (c *capture) metadata() metadata {
 	return metadata{
 		SessionID: c.id, FreqStart: c.config.FreqStart, Resolution: c.config.Resolution,
 		BinCount: c.config.BinCount, PageRows: c.pageRows, SeqStart: c.seqStart, SeqEnd: c.seqEnd,
-		StartedAt: c.startedAt, Retention: retention{Rows: len(c.rows), Policy: "session"},
+		StartedAt: c.startedAt, Retention: retention{Rows: int(c.seqEnd - c.seqStart), Policy: "session"},
 		LiveFormat: "spectrum-live-binary-v1",
 	}
 }
 
-func (c *capture) pages(from uint64, count int) ([][]row, int) {
+func (c *capture) pagePayloads(from uint64, count int) ([][]byte, int, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	start := from * uint64(c.pageRows)
-	end := start + uint64(count*c.pageRows)
-	completeEnd := c.seqEnd - c.seqEnd%uint64(c.pageRows)
-	if start < c.seqStart {
-		return nil, http.StatusGone
+	firstRetainedPage := c.seqStart / uint64(c.pageRows)
+	if from < firstRetainedPage {
+		return nil, http.StatusGone, nil
 	}
-	if end > completeEnd {
-		return nil, http.StatusNotFound
+	available := c.store.PageCount()
+	if from > available || uint64(count) > available-from {
+		return nil, http.StatusNotFound, nil
 	}
-	pages := make([][]row, count)
+	pages := make([][]byte, count)
 	for p := 0; p < count; p++ {
-		pages[p] = make([]row, c.pageRows)
-		for i := 0; i < c.pageRows; i++ {
-			seq := start + uint64(p*c.pageRows+i)
-			pages[p][i] = c.rows[seq]
+		payload, err := c.store.ReadPage(from + uint64(p))
+		if err != nil {
+			return nil, http.StatusInternalServerError, err
 		}
+		pages[p] = payload
 	}
-	return pages, http.StatusOK
+	return pages, http.StatusOK, nil
 }
 
 func (c *capture) seek(timestamp int64) (uint64, bool) {
@@ -471,7 +760,7 @@ func (c *capture) seek(timestamp int64) (uint64, bool) {
 	lo, hi := c.seqStart, c.seqEnd
 	for lo < hi {
 		mid := lo + (hi-lo)/2
-		if int64(c.rows[mid].TimestampMS) < timestamp {
+		if int64(c.timestamps[mid-c.seqStart]) < timestamp {
 			lo = mid + 1
 		} else {
 			hi = mid
@@ -488,14 +777,21 @@ func (c *capture) subscribe(after uint64, hasAfter bool) ([]row, <-chan row, fun
 	defer c.mu.Unlock()
 	start := c.seqEnd
 	if hasAfter {
-		if after+1 < c.seqStart {
+		if after == ^uint64(0) {
+			start = c.seqEnd
+		} else if after+1 < c.hotStart {
 			return nil, nil, func() {}, http.StatusGone
+		} else {
+			start = min(after+1, c.seqEnd)
 		}
-		start = after + 1
 	}
 	backlog := make([]row, 0, c.seqEnd-start)
 	for seq := start; seq < c.seqEnd; seq++ {
-		backlog = append(backlog, c.rows[seq])
+		item := c.hotRows[seq%uint64(len(c.hotRows))]
+		if item.Seq != seq {
+			return nil, nil, func() {}, http.StatusGone
+		}
+		backlog = append(backlog, item)
 	}
 	updates := make(chan row, 1_024)
 	c.subscribers[updates] = struct{}{}
@@ -520,7 +816,15 @@ type pageHeader struct {
 	} `json:"annotations"`
 }
 
-func writePage(w http.ResponseWriter, rows []row, binCount int) error {
+func encodePage(rows []row, binCount int) ([]byte, error) {
+	var buffer bytes.Buffer
+	if err := writePage(&buffer, rows, binCount); err != nil {
+		return nil, err
+	}
+	return buffer.Bytes(), nil
+}
+
+func writePage(w io.Writer, rows []row, binCount int) error {
 	annotationBytes := 0
 	for _, item := range rows {
 		annotationBytes += 2 + len(item.Annotations)*5

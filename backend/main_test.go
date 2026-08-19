@@ -22,7 +22,11 @@ func TestPageRowsForUsesPowerOfTwoByteBudget(t *testing.T) {
 }
 
 func TestMetadataAndHistoryPageShareSequenceSpace(t *testing.T) {
-	c := newCapture(captureConfig{FreqStart: 25_000, Resolution: 1_500, BinCount: 64})
+	c, err := newCapture(captureConfig{FreqStart: 25_000, Resolution: 1_500, BinCount: 64}, t.TempDir(), 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.stop()
 	s := &server{current: c}
 
 	metadataRequest := httptest.NewRequest(http.MethodGet, "/api/captures/current", nil)
@@ -69,29 +73,64 @@ func TestMetadataAndHistoryPageShareSequenceSpace(t *testing.T) {
 }
 
 func TestSessionKeepsPagesFromItsBeginning(t *testing.T) {
-	c := newCapture(captureConfig{FreqStart: 25_000, Resolution: 1_500, BinCount: 64})
-	c.mu.Lock()
-	for seq := c.seqEnd; seq < 20_000; seq++ {
-		c.rows = append(c.rows, row{
-			Seq:         seq,
-			TimestampMS: float64(c.startedAt) + float64(seq*60),
-			Spectrum:    make([]int8, c.config.BinCount),
-		})
-		c.seqEnd++
+	c, err := newCapture(captureConfig{FreqStart: 25_000, Resolution: 1_500, BinCount: 64}, t.TempDir(), 1<<20)
+	if err != nil {
+		t.Fatal(err)
 	}
-	c.mu.Unlock()
+	defer c.stop()
+	spectrum := make([]int8, c.config.BinCount)
+	for seq := c.seqEnd; seq < 20_000; seq++ {
+		if err := c.appendRow(row{
+			TimestampMS: float64(c.startedAt) + float64(seq*60),
+			Spectrum:    spectrum,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
 
-	pages, status := c.pages(0, 1)
+	pages, status, err := c.pagePayloads(0, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if status != http.StatusOK {
 		t.Fatalf("oldest page status = %d, want %d", status, http.StatusOK)
 	}
-	if pages[0][0].Seq != 0 {
-		t.Fatalf("oldest retained seq = %d, want 0", pages[0][0].Seq)
+	header := decodePageHeader(t, pages[0])
+	if header.SeqStart != 0 {
+		t.Fatalf("oldest retained seq = %d, want 0", header.SeqStart)
 	}
 	got := c.metadata()
 	if got.SeqStart != 0 || got.SeqEnd != 20_000 || got.Retention.Policy != "session" {
 		t.Fatalf("unexpected session retention metadata: %+v", got)
 	}
+	if c.hotStart == 0 || len(c.hotRows) != defaultHotRows {
+		t.Fatalf("hot ring did not stay bounded: start=%d rows=%d", c.hotStart, len(c.hotRows))
+	}
+	if len(c.tail) >= c.pageRows {
+		t.Fatalf("incomplete tail has %d rows, page size is %d", len(c.tail), c.pageRows)
+	}
+	seq, found := c.seek(c.startedAt + 100*tickInterval.Milliseconds())
+	if !found || seq != 100 {
+		t.Fatalf("seek into disk-aged history = (%d, %t), want (100, true)", seq, found)
+	}
+}
+
+func decodePageHeader(t *testing.T, payload []byte) pageHeader {
+	t.Helper()
+	body := bytes.NewReader(payload)
+	var headerLength uint32
+	if err := binary.Read(body, binary.LittleEndian, &headerLength); err != nil {
+		t.Fatal(err)
+	}
+	headerBytes := make([]byte, headerLength)
+	if _, err := body.Read(headerBytes); err != nil {
+		t.Fatal(err)
+	}
+	var header pageHeader
+	if err := json.Unmarshal(headerBytes, &header); err != nil {
+		t.Fatal(err)
+	}
+	return header
 }
 
 func uintToString(value uint64) string {
