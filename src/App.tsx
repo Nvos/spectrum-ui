@@ -17,10 +17,12 @@ import type { ProfileRange, SpectrumInitialData } from "./Spectrum";
 import {
   createCapture,
   getCurrentCapture,
+  getRecording,
+  getRecordings,
   loadInitialHistory,
   streamLiveFrames,
 } from "./api";
-import type { CaptureMetadata } from "./api";
+import type { CaptureMetadata, HistorySource, RecordingMetadata } from "./api";
 import { HistoryPager } from "./historyPaging";
 import {
   avgTauAtom,
@@ -522,7 +524,8 @@ type SpectrumParams = { freqStart: number; resolution: number; binCount: number;
 type SpectrumConfig = {
   params: SpectrumParams;
   initialData?: SpectrumInitialData;
-  capture?: CaptureMetadata;
+  source: HistorySource;
+  liveCapture?: CaptureMetadata;
 };
 
 const useBackendStream = (frameBuffer: FrameBuffer | null, capture?: CaptureMetadata) => {
@@ -599,20 +602,22 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
 
   const [backendStatus, setBackendStatus] = useState("Connecting to mock backend…");
   const [config, setConfig] = useState<SpectrumConfig | null>(null);
+  const [recordings, setRecordings] = useState<RecordingMetadata[]>([]);
+  const [selectedSourceId, setSelectedSourceId] = useState("live");
 
-  const installCapture = useCallback(
-    async (capture: CaptureMetadata, historyRows: number) => {
+  const installSource = useCallback(
+    async (source: HistorySource, historyRows: number, liveCapture?: CaptureMetadata) => {
       setBackendStatus("Loading recent history…");
-      const initialData = await loadInitialHistory(capture);
+      const initialData = await loadInitialHistory(source);
       const params = {
-        freqStart: capture.freqStart,
-        resolution: capture.resolution,
-        binCount: capture.binCount,
+        freqStart: source.freqStart,
+        resolution: source.resolution,
+        binCount: source.binCount,
         historyRows,
       };
       store.set(occupancyThresholdAtom, initialData.occupancy.threshold);
       setParamsForm(params);
-      setConfig({ params, initialData, capture });
+      setConfig({ params, initialData, source, liveCapture });
       setBackendStatus("");
     },
     [store],
@@ -620,9 +625,11 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
 
   useEffect(() => {
     let active = true;
-    void getCurrentCapture()
-      .then((capture) => {
-        if (active) return installCapture(capture, DEFAULT_HISTORY_ROWS);
+    void Promise.all([getCurrentCapture(), getRecordings()])
+      .then(([capture, availableRecordings]) => {
+        if (!active) return;
+        setRecordings(availableRecordings);
+        return installSource(capture, DEFAULT_HISTORY_ROWS, capture);
       })
       .catch((error: unknown) => {
         if (active) setBackendStatus(error instanceof Error ? error.message : "Backend unavailable");
@@ -630,7 +637,7 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
     return () => {
       active = false;
     };
-  }, [installCapture]);
+  }, [installSource]);
 
   const { frameBuffer, core } = useMemo(() => {
     if (!config) return { frameBuffer: null, core: null };
@@ -641,7 +648,7 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
       initialData?.spectrum,
       initialData?.annotations,
     );
-    if (config.capture) fb.configurePaging(config.capture.pageRows, config.capture.seqStart);
+    fb.configurePaging(config.source.pageRows, config.source.seqStart);
     const c = new SpectrumCore(fb, {
       ...params,
       initialData,
@@ -663,16 +670,16 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config]);
 
-  useBackendStream(frameBuffer, config?.capture);
+  useBackendStream(frameBuffer, config?.liveCapture);
   useSpectrumCoreBridge(store, core);
 
   useEffect(() => {
-    if (!frameBuffer || !config?.capture) return;
-    const pager = new HistoryPager(frameBuffer, config.capture, (error) => {
+    if (!frameBuffer || !config) return;
+    const pager = new HistoryPager(frameBuffer, config.source, (error) => {
       setBackendStatus(error instanceof Error ? error.message : "Could not load history");
     });
     return () => pager.dispose();
-  }, [frameBuffer, config?.capture]);
+  }, [frameBuffer, config]);
 
   useEffect(() => {
     if (!core || !config) return;
@@ -749,10 +756,32 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
 
   const handleRehydrate = async () => {
     try {
-      const capture = await getCurrentCapture();
-      await installCapture(capture, config?.params.historyRows ?? DEFAULT_HISTORY_ROWS);
+      if (selectedSourceId === "live") {
+        const capture = await getCurrentCapture();
+        await installSource(capture, config?.params.historyRows ?? DEFAULT_HISTORY_ROWS, capture);
+      } else {
+        const recording = await getRecording(selectedSourceId);
+        await installSource(recording, recording.historyRows || DEFAULT_HISTORY_ROWS);
+      }
     } catch (error) {
-      setBackendStatus(error instanceof Error ? error.message : "Could not reload capture");
+      setBackendStatus(error instanceof Error ? error.message : "Could not reload data");
+    }
+  };
+
+  const handleSourceChange = async (sourceId: string) => {
+    try {
+      if (sourceId === "live") {
+        setBackendStatus("Returning to live capture…");
+        const capture = await getCurrentCapture();
+        await installSource(capture, config?.params.historyRows ?? DEFAULT_HISTORY_ROWS, capture);
+      } else {
+        setBackendStatus("Loading recording…");
+        const recording = await getRecording(sourceId);
+        await installSource(recording, recording.historyRows || DEFAULT_HISTORY_ROWS);
+      }
+      setSelectedSourceId(sourceId);
+    } catch (error) {
+      setBackendStatus(error instanceof Error ? error.message : "Could not load recording");
     }
   };
 
@@ -760,7 +789,9 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
     try {
       setBackendStatus("Starting capture…");
       const capture = await createCapture(paramsForm);
-      await installCapture(capture, paramsForm.historyRows);
+      await installSource(capture, paramsForm.historyRows, capture);
+      setSelectedSourceId("live");
+      setRecordings(await getRecordings());
     } catch (error) {
       setBackendStatus(error instanceof Error ? error.message : "Could not start capture");
     }
@@ -783,6 +814,7 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
   }, []);
   const handleLayerToggle = (id: LayerName, visible: boolean) =>
     setLayerVisibility((prev) => ({ ...prev, [id]: visible }));
+  const savedRecordings = recordings.filter((recording) => recording.state !== "recording");
 
   return (
     <div className={styles.root}>
@@ -894,6 +926,26 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
         <span className={styles.occLabel}>dBm</span>
       </div>
       <div className={styles.controlsRow}>
+        <label className={styles.recordingField}>
+          <span>data source</span>
+          <select
+            className={styles.recordingSelect}
+            value={selectedSourceId}
+            onChange={(event) => void handleSourceChange(event.currentTarget.value)}
+          >
+            <option value="live">● Live capture</option>
+            {savedRecordings.length > 0 && (
+              <optgroup label="Saved recordings">
+                {savedRecordings.map((recording) => (
+                  <option key={recording.recordingId} value={recording.recordingId}>
+                    {recording.name} · {new Date(recording.createdAt).toLocaleString()} · {recording.state}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+        </label>
+        <div className={styles.separator} />
         {(
           [
             { key: "freqStart" as const, label: "freqStart (kHz)" },
@@ -926,7 +978,14 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
       </div>
       {backendStatus && <div role="status">{backendStatus}</div>}
       <div className={styles.spectrumContainer}>
-        {core && <Spectrum core={core} profileRanges={profileRanges} bands={bands} />}
+        {core && (
+          <Spectrum
+            core={core}
+            profileRanges={profileRanges}
+            bands={bands}
+            live={Boolean(config?.liveCapture)}
+          />
+        )}
       </div>
       {profileDrawerOpen && (
         <>

@@ -12,9 +12,10 @@ type Props = {
   core: SpectrumCore;
   profileRanges?: ProfileRange[];
   bands?: Band[];
+  live?: boolean;
 };
 
-export const Spectrum = ({ core, profileRanges, bands }: Props) => {
+export const Spectrum = ({ core, profileRanges, bands, live = true }: Props) => {
   const liveRef = useRef<HTMLCanvasElement>(null);
   const waterfallRef = useRef<HTMLCanvasElement>(null);
   const annotationRef = useRef<HTMLCanvasElement>(null);
@@ -80,7 +81,7 @@ export const Spectrum = ({ core, profileRanges, bands }: Props) => {
         colormapLegendRef={colormapLegendRef}
         bandContainerRef={bandContainerRef}
         gridContainerRef={gridContainerRef}
-        waterfallOverlay={<HistoryControls core={core} />}
+        waterfallOverlay={<HistoryControls core={core} live={live} />}
       />
       <div ref={tooltipRef} className={styles.tooltip} style={{ display: "none" }} />
       <div ref={bandTooltipRef} className={styles.tooltip} style={{ display: "none" }} />

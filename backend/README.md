@@ -76,9 +76,10 @@ GET /api/recordings/{recordingId}/seek?t=<epoch-ms>
 
 The list is newest-first and includes the active recording. Page and seek results
 use the same binary format and `seq` coordinate system as live capture history, so
-a later replay UI can use the existing history pager. `POST /api/captures` accepts
-an optional `name`, and `-recording-name` names the automatic startup recording;
-otherwise the backend assigns a UTC timestamp-based name.
+the UI can browse a saved recording with its existing history pager. `POST
+/api/captures` accepts an optional `name`, and `-recording-name` names the
+automatic startup recording; otherwise the backend assigns a UTC timestamp-based
+name.
 
 ## History pages
 

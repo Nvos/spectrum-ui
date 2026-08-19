@@ -150,7 +150,8 @@ export class RingBuffer {
   hasPage(pageIndex: number): boolean {
     if (this.pageRows <= 0) return false;
     const start = pageIndex * this.pageRows;
-    const end = start + this.pageRows;
+    if (start >= this.totalWritten) return false;
+    const end = Math.min(start + this.pageRows, this.totalWritten);
     if (start >= this.residentOldestAbs() && end <= this.totalWritten) return true;
     return this.pages.has(pageIndex);
   }
@@ -160,7 +161,7 @@ export class RingBuffer {
   }
 
   loadPage(page: CachedPage) {
-    if (this.pageRows <= 0 || page.count !== this.pageRows) {
+    if (this.pageRows <= 0 || page.count <= 0 || page.count > this.pageRows) {
       throw new Error("History page shape does not match the configured page size");
     }
     const pageIndex = Math.floor(page.seqStart / this.pageRows);

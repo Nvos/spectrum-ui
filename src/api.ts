@@ -25,6 +25,23 @@ export type CaptureMetadata = {
   liveFormat: "spectrum-live-binary-v1";
 };
 
+export type RecordingMetadata = CaptureMetadata & {
+  recordingId: string;
+  name: string;
+  state: "recording" | "complete" | "interrupted";
+  historyRows: number;
+  pageCount: number;
+  createdAt: number;
+  endedAt?: number;
+  segmentBytes: number;
+  segments: string[];
+};
+
+export type HistorySource = CaptureMetadata | RecordingMetadata;
+
+export const isRecording = (source: HistorySource): source is RecordingMetadata =>
+  "recordingId" in source;
+
 type PageHeader = {
   seqStart: number;
   rows: number;
@@ -56,14 +73,28 @@ export const createCapture = (params: CaptureParams): Promise<CaptureMetadata> =
     body: JSON.stringify(params),
   });
 
+export const getRecordings = (): Promise<RecordingMetadata[]> =>
+  requestJSON("/api/recordings");
+
+export const getRecording = (recordingId: string): Promise<RecordingMetadata> =>
+  requestJSON(`/api/recordings/${encodeURIComponent(recordingId)}`);
+
+const historyBasePath = (source: HistorySource): string =>
+  isRecording(source)
+    ? `/api/recordings/${encodeURIComponent(source.recordingId)}`
+    : `/api/captures/${encodeURIComponent(source.sessionId)}`;
+
+export const historyPageEnd = (source: HistorySource): number =>
+  isRecording(source) ? source.pageCount : Math.floor(source.seqEnd / source.pageRows);
+
 export const fetchHistoryPages = async (
-  capture: CaptureMetadata,
+  source: HistorySource,
   fromPage: number,
   count: number,
   signal?: AbortSignal,
 ): Promise<HistoryPage[]> => {
   const response = await fetch(
-    apiURL(`/api/captures/${encodeURIComponent(capture.sessionId)}/pages?from=${fromPage}&count=${count}`),
+    apiURL(`${historyBasePath(source)}/pages?from=${fromPage}&count=${count}`),
     { signal },
   );
   if (!response.ok) throw await responseError(response);
@@ -71,26 +102,26 @@ export const fetchHistoryPages = async (
 };
 
 export const seekCapture = (
-  capture: CaptureMetadata,
+  source: HistorySource,
   timestampMs: number,
   signal?: AbortSignal,
 ): Promise<{ seq: number }> =>
   requestJSON(
-    `/api/captures/${encodeURIComponent(capture.sessionId)}/seek?t=${Math.round(timestampMs)}`,
+    `${historyBasePath(source)}/seek?t=${Math.round(timestampMs)}`,
     { signal },
   );
 
 export const loadInitialHistory = async (
-  capture: CaptureMetadata,
+  source: HistorySource,
 ): Promise<SpectrumInitialData> => {
-  const completePageEnd = Math.floor(capture.seqEnd / capture.pageRows);
-  const oldestPage = Math.ceil(capture.seqStart / capture.pageRows);
+  const completePageEnd = historyPageEnd(source);
+  const oldestPage = Math.ceil(source.seqStart / source.pageRows);
   const fromPage = Math.max(oldestPage, completePageEnd - INITIAL_PAGE_COUNT);
   const count = completePageEnd - fromPage;
-  if (count <= 0) return emptyInitialData(capture.binCount, capture.seqEnd);
+  if (count <= 0) return emptyInitialData(source.binCount, source.seqEnd);
 
-  const pages = await fetchHistoryPages(capture, fromPage, count);
-  return pagesToInitialData(pages, capture.binCount);
+  const pages = await fetchHistoryPages(source, fromPage, count);
+  return pagesToInitialData(pages, source.binCount);
 };
 
 export const streamLiveFrames = async (

@@ -75,6 +75,29 @@ export const occLabel = style({
   color: "rgba(255,255,255,0.3)",
 });
 
+export const recordingField = style({
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.125rem",
+  fontSize: "0.75rem",
+  fontFamily: font.mono,
+  color: "rgba(255,255,255,0.45)",
+});
+
+export const recordingSelect = style({
+  width: "22rem",
+  maxWidth: "45vw",
+  height: "1.75rem",
+  paddingLeft: "0.5rem",
+  paddingRight: "0.5rem",
+  borderRadius: "0.25rem",
+  border: "1px solid rgba(255,255,255,0.18)",
+  backgroundColor: background[900],
+  color: text.default,
+  fontFamily: font.mono,
+  fontSize: "0.75rem",
+});
+
 export const subviewsRow = style({
   display: "flex",
   padding: "0 2rem 1rem",

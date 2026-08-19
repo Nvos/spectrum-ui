@@ -1,5 +1,5 @@
-import { fetchHistoryPages } from "./api";
-import type { CaptureMetadata, HistoryPage } from "./api";
+import { fetchHistoryPages, historyPageEnd } from "./api";
+import type { HistoryPage, HistorySource } from "./api";
 import type { FrameBuffer, HistoryWindowRequest } from "./Spectrum/core/FrameBuffer";
 
 const SETTLE_MS = 140;
@@ -13,7 +13,7 @@ const MAX_BATCH_PAGES = 8;
  */
 export class HistoryPager {
   private readonly frameBuffer: FrameBuffer;
-  private readonly capture: CaptureMetadata;
+  private readonly source: HistorySource;
   private readonly onError: (error: unknown) => void;
   private readonly fetchPages: typeof fetchHistoryPages;
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -23,12 +23,12 @@ export class HistoryPager {
 
   constructor(
     frameBuffer: FrameBuffer,
-    capture: CaptureMetadata,
+    source: HistorySource,
     onError: (error: unknown) => void,
     fetchPages: typeof fetchHistoryPages = fetchHistoryPages,
   ) {
     this.frameBuffer = frameBuffer;
-    this.capture = capture;
+    this.source = source;
     this.onError = onError;
     this.fetchPages = fetchPages;
     frameBuffer.onHistoryWindowRequest = this.request;
@@ -50,10 +50,9 @@ export class HistoryPager {
       return;
     }
 
-    const pageRows = this.capture.pageRows;
-    const seqEnd = this.frameBuffer.spectrum.totalWritten;
-    const completePageEnd = Math.floor(seqEnd / pageRows);
-    const visibleBottom = Math.max(this.capture.seqStart, window.anchorRow - window.displayRows + 1);
+    const pageRows = this.source.pageRows;
+    const completePageEnd = historyPageEnd(this.source);
+    const visibleBottom = Math.max(this.source.seqStart, window.anchorRow - window.displayRows + 1);
     if (window.following && visibleBottom >= this.frameBuffer.spectrum.residentOldestAbs()) {
       this.cancelPending();
       this.requestKey = "live";
@@ -62,7 +61,7 @@ export class HistoryPager {
     }
     const visibleFirst = Math.floor(visibleBottom / pageRows);
     const visibleLast = Math.min(completePageEnd - 1, Math.floor(window.anchorRow / pageRows));
-    const first = Math.max(Math.ceil(this.capture.seqStart / pageRows), visibleFirst - PREFETCH_PAGES);
+    const first = Math.max(Math.ceil(this.source.seqStart / pageRows), visibleFirst - PREFETCH_PAGES);
     const last = Math.min(completePageEnd - 1, visibleLast + PREFETCH_PAGES);
     // Pin completed pages in the page cache even when they are still readable
     // from the live ring. Otherwise a paused page disappears the instant the
@@ -96,7 +95,7 @@ export class HistoryPager {
     try {
       for (const batch of contiguousBatches(missing)) {
         const pages = await this.fetchPages(
-          this.capture,
+          this.source,
           batch.from,
           batch.count,
           controller.signal,

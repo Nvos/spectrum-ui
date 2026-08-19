@@ -31,8 +31,9 @@ The backend exposes:
 - `GET /api/captures/{id}/live?after=` — binary live stream with catch-up
 
 Persistent recordings add `GET /api/recordings`, recording metadata, binary page,
-and timestamp-seek endpoints. The current UI remains attached to the active
-recording; a recording-selection/replay UI is future work.
+and timestamp-seek endpoints. The data-source selector switches between the live
+capture and saved recordings; saved recordings use the same scrollbar and paging
+cache without opening a live stream.
 
 To exercise paging, leave the backend running, then drag the waterfall history
 scrollbar toward the bottom. The paused indicator shows `LOADING…` while the

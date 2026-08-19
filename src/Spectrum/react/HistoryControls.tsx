@@ -11,7 +11,7 @@ const formatClock = (ms: number): string => {
   return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
 };
 
-type Props = { core: SpectrumCore };
+type Props = { core: SpectrumCore; live?: boolean };
 
 /**
  * Follow/pause readout and history scrollbar.
@@ -20,7 +20,7 @@ type Props = { core: SpectrumCore };
  * only discoverable entry point to history — a user who never guesses the
  * modifier reaches it through this and nothing else.
  */
-export const HistoryControls = ({ core }: Props) => {
+export const HistoryControls = ({ core, live = true }: Props) => {
   const position = useAtomValue(historyPositionAtom);
   const trackRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
@@ -96,7 +96,9 @@ export const HistoryControls = ({ core }: Props) => {
   };
 
   const label = following
-    ? "● LIVE"
+    ? live
+      ? "● LIVE"
+      : `● LATEST · ${formatClock(timestampMs)}`
     : loading
       ? "⏸ LOADING…"
       : atOldest
@@ -108,9 +110,17 @@ export const HistoryControls = ({ core }: Props) => {
       <button
         type="button"
         className={`${styles.historyIndicator} ${
-          following ? styles.historyIndicatorLive : styles.historyIndicatorPaused
+          following && live ? styles.historyIndicatorLive : styles.historyIndicatorPaused
         }`}
-        title={following ? "Following live data" : "Paused — click to return to live"}
+        title={
+          following
+            ? live
+              ? "Following live data"
+              : "Showing newest recorded data"
+            : live
+              ? "Paused — click to return to live"
+              : "Click to return to newest recorded data"
+        }
         onClick={() => core.scrollHistoryToLive()}
       >
         {label}
@@ -124,7 +134,15 @@ export const HistoryControls = ({ core }: Props) => {
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={Math.round(scrollTop * 100)}
-        aria-valuetext={following ? "Live" : loading ? "Loading history" : formatClock(timestampMs)}
+        aria-valuetext={
+          following
+            ? live
+              ? "Live"
+              : "Latest recorded data"
+            : loading
+              ? "Loading history"
+              : formatClock(timestampMs)
+        }
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
