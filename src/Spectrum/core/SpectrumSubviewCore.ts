@@ -11,6 +11,7 @@ import type { AverageLayer } from "./AverageLayer";
 import type { MaxHoldLayer } from "./MaxHoldLayer";
 import type { RingBuffer } from "./RingBuffer";
 import type { LayerVisibility } from "./SpectrumCore";
+import type { TimeCursor } from "./TimeCursor";
 
 export type SubviewRefs = {
   waterfall: HTMLCanvasElement;
@@ -55,7 +56,7 @@ export class SpectrumSubviewCore implements SubviewHandle {
 
   private readonly buffer: RingBuffer;
   private readonly annotationBuffer: RingBuffer;
-  private readonly rowCount: number;
+  private readonly historyRows: number;
   private readonly binCount: number;
   private readonly subFreqStartMHz: number;
   private readonly subFreqEndMHz: number;
@@ -66,11 +67,13 @@ export class SpectrumSubviewCore implements SubviewHandle {
   private readonly avgLayer: AverageLayer;
   private readonly maxHold: MaxHoldLayer;
   private readonly occupancyData: Float32Array;
+  private readonly timeCursor: TimeCursor;
+  private readonly requestRender: () => void;
 
   constructor(
     buffer: RingBuffer,
     annotationBuffer: RingBuffer,
-    rowCount: number,
+    historyRows: number,
     binCount: number,
     subFreqStartMHz: number,
     subFreqEndMHz: number,
@@ -81,10 +84,12 @@ export class SpectrumSubviewCore implements SubviewHandle {
     avgLayer: AverageLayer,
     maxHold: MaxHoldLayer,
     occupancyData: Float32Array,
+    timeCursor: TimeCursor,
+    requestRender: () => void,
   ) {
     this.buffer = buffer;
     this.annotationBuffer = annotationBuffer;
-    this.rowCount = rowCount;
+    this.historyRows = historyRows;
     this.binCount = binCount;
     this.subFreqStartMHz = subFreqStartMHz;
     this.subFreqEndMHz = subFreqEndMHz;
@@ -95,31 +100,45 @@ export class SpectrumSubviewCore implements SubviewHandle {
     this.avgLayer = avgLayer;
     this.maxHold = maxHold;
     this.occupancyData = occupancyData;
+    this.timeCursor = timeCursor;
+    this.requestRender = requestRender;
   }
 
   mount(refs: SubviewRefs) {
-    const { buffer, annotationBuffer, rowCount, binCount, subFreqStartMHz, subFreqEndMHz,
-      normalizedStart, normalizedEnd, settings, layers, avgLayer, maxHold } = this;
+    const { buffer, annotationBuffer, historyRows, binCount, subFreqStartMHz, subFreqEndMHz,
+      normalizedStart, normalizedEnd, settings, layers, avgLayer, maxHold, timeCursor } = this;
 
     const viewport = new Viewport(binCount, refs.waterfall, 12, normalizedStart, normalizedEnd);
     viewport.panTo(normalizedStart, normalizedEnd);
 
-    const initialH = refs.waterfall.getBoundingClientRect().height;
-    const initialRowCount = Math.max(10, Math.floor(initialH / 2));
+    // A subview only ever renders normalizedStart..normalizedEnd -- its Viewport
+    // clamps zoom to exactly that span -- so out-of-range bins are unreachable
+    // and cropping the texture to them loses nothing at any zoom level. That is
+    // what lets each subview hold the FULL ring depth in its own GL context
+    // (textures cannot be shared across contexts) at a few MB rather than 33.
+    const subBinStart = Math.max(0, Math.min(binCount - 1, Math.floor(normalizedStart * binCount)));
+    const subBinEnd = Math.max(subBinStart + 1, Math.min(binCount, Math.ceil(normalizedEnd * binCount)));
 
-    const waterfallRenderer = new WaterfallRenderer(initialRowCount, binCount, buffer, {
+    const displayRows = this.measureDisplayRows(refs.waterfall);
+
+    const waterfallRenderer = new WaterfallRenderer(historyRows, binCount, buffer, {
       displayMin: settings.displayMin,
       displayMax: settings.displayMax,
       colormap: settings.colormap,
+      binStart: subBinStart,
+      binSpan: subBinEnd - subBinStart,
     });
-    waterfallRenderer.mount(refs.waterfall, viewport);
+    waterfallRenderer.mount(refs.waterfall, viewport, timeCursor);
+    waterfallRenderer.setDisplayRows(displayRows);
 
     this.resizeObserver = new ResizeObserver((entries) => {
       const h = entries[0].contentRect.height;
       const n = Math.max(10, Math.floor(h / 2));
-      waterfallRenderer.setRowCount(n);
-      annotationRenderer.setDisplayRowCount(n);
-      tooltipController.setDisplayRowCount(n);
+      waterfallRenderer.setDisplayRows(n);
+      annotationRenderer.setDisplayRows(n);
+      liveRenderer.setDisplayRows(n);
+      tooltipController.setDisplayRows(n);
+      this.requestRender();
     });
     this.resizeObserver.observe(refs.waterfall);
 
@@ -128,14 +147,16 @@ export class SpectrumSubviewCore implements SubviewHandle {
       displayMax: settings.displayMax,
       layerVisibility: settings.layerVisibility,
     });
-    liveRenderer.mount(refs.live, viewport);
+    liveRenderer.mount(refs.live, viewport, timeCursor);
+    liveRenderer.setDisplayRows(displayRows);
     for (const { id, data, color, mode } of layers) {
       liveRenderer.setLayer(id, data, color, mode);
     }
 
-    const annotationRenderer = new AnnotationRenderer(annotationBuffer, rowCount, binCount, settings.layerVisibility.annotations ?? true);
-    annotationRenderer.mount(refs.annotation, viewport);
-    liveRenderer.setAnnotation(annotationBuffer, annotationRenderer.rowActivity, rowCount);
+    const annotationRenderer = new AnnotationRenderer(annotationBuffer, historyRows, binCount, settings.layerVisibility.annotations ?? true);
+    annotationRenderer.mount(refs.annotation, viewport, timeCursor);
+    annotationRenderer.setDisplayRows(displayRows);
+    liveRenderer.setAnnotation(annotationBuffer, annotationRenderer.rowActivity, historyRows);
 
     const freqAxisController = new FrequencyAxisController(subFreqStartMHz, subFreqEndMHz);
     freqAxisController.mount(refs.freqAxis);
@@ -147,30 +168,24 @@ export class SpectrumSubviewCore implements SubviewHandle {
       freqStartMHz: subFreqStartMHz,
       freqEndMHz: subFreqEndMHz,
       binCount,
-      rowCount: initialRowCount,
       buffer,
       avgLayer,
       maxHold,
       viewport,
+      timeCursor,
       normalizedStart,
       normalizedEnd,
     });
+    tooltipController.setDisplayRows(displayRows);
     tooltipController.mount(refs.tooltip, refs.live, refs.waterfall);
 
-    const subviewSpan = normalizedEnd - normalizedStart;
-    const toLocal = (v: number) => (v - normalizedStart) / subviewSpan;
-
-    const renderAll = () => {
-      freqAxisController.update(toLocal(viewport.start), toLocal(viewport.end));
-      waterfallRenderer.render();
-      liveRenderer.render();
-    };
-
-    this.waterfallInput = new InputHandler(refs.waterfall, viewport, renderAll);
-    this.liveInput = new InputHandler(refs.live, viewport, renderAll);
+    // Input drives the parent render loop so a subview gesture repaints every
+    // pane -- necessary now that shift+wheel here moves the shared time cursor.
+    this.waterfallInput = new InputHandler(refs.waterfall, viewport, this.requestRender, timeCursor);
+    this.liveInput = new InputHandler(refs.live, viewport, this.requestRender);
 
     const occupancyView = new OccupancyView(this.occupancyData, binCount);
-    occupancyView.mount(refs.occupancy, viewport);
+    occupancyView.mount(refs.occupancy, viewport, timeCursor);
 
     this.waterfallRenderer = waterfallRenderer;
     this.liveRenderer = liveRenderer;
@@ -180,6 +195,12 @@ export class SpectrumSubviewCore implements SubviewHandle {
     this.powerAxisController = powerAxisController;
     this.tooltipController = tooltipController;
     this.viewport = viewport;
+  }
+
+  // Subviews keep 1 row per 2 CSS pixels, so they cover twice the wall-clock
+  // span of the main view at the same anchor.
+  private measureDisplayRows(canvas: HTMLCanvasElement): number {
+    return Math.max(10, Math.floor(canvas.getBoundingClientRect().height / 2));
   }
 
   render() {
@@ -194,9 +215,9 @@ export class SpectrumSubviewCore implements SubviewHandle {
     this.tooltipController?.refresh();
   }
 
-  push(writtenRow: number, specRow: Int8Array, annRow: Int8Array) {
-    this.waterfallRenderer?.push(writtenRow, specRow);
-    this.annotationRenderer?.push(writtenRow, annRow);
+  push(absRow: number, specRow: Int8Array, annRow: Int8Array) {
+    this.waterfallRenderer?.push(absRow, specRow);
+    this.annotationRenderer?.push(absRow, annRow);
   }
 
   updateDisplayRange(min: number, max: number) {

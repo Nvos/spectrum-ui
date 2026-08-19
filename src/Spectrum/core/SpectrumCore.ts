@@ -16,6 +16,7 @@ import { OccupancyRenderer } from "./OccupancyRenderer";
 import { PowerAxisController } from "./PowerAxisController";
 import { SpectrumSubviewCore } from "./SpectrumSubviewCore";
 import { SubviewHighlightController } from "./SubviewHighlightController";
+import { TimeCursor } from "./TimeCursor";
 import { TimeLabelsController } from "./TimeLabelsController";
 import { TooltipController } from "./TooltipController";
 import { Viewport } from "./Viewport";
@@ -31,6 +32,29 @@ export type SpectrumInitialData = {
   occupancy: { counts: Uint32Array; total: number; threshold: number };
 };
 
+/** Snapshot of the time cursor, published for follow/pause UI. */
+export type HistoryState = {
+  /** True when pinned to the newest row. */
+  following: boolean;
+  /** Absolute index of the newest visible row. */
+  anchorRow: number;
+  oldestAbs: number;
+  totalWritten: number;
+  displayRows: number;
+  /** Wall-clock time of the anchor row, or 0 when it is unavailable. */
+  timestampMs: number;
+  /**
+   * True while the anchor is pinned against the oldest retained row. The
+   * treadmill is dragging it forward, so the paused timestamp keeps changing --
+   * which reads as a bug unless the UI labels it.
+   */
+  atOldest: boolean;
+  /** Distance from live as a fraction of retained history; 0 = live. */
+  scrollTop: number;
+  /** Visible window as a fraction of retained history. */
+  scrollSize: number;
+};
+
 export type LayerVisibility = {
   live: boolean;
   avg: boolean;
@@ -42,7 +66,6 @@ export type LayerVisibility = {
 export type SpectrumCoreOptions = {
   freqStart: number;
   resolution: number;
-  rowCount: number;
   binCount: number;
   initialData?: SpectrumInitialData;
   displayMin?: number;
@@ -54,6 +77,7 @@ export type SpectrumCoreOptions = {
   onDisplayRangeChange?: (min: number, max: number) => void;
   onReset?: () => void;
   onProfileRangeChange?: (id: string, startMHz: number, endMHz: number) => void;
+  onHistoryStateChange?: (state: HistoryState) => void;
 };
 
 export type SpectrumMountRefs = {
@@ -76,7 +100,7 @@ export class SpectrumCore {
   private frameBuffer: FrameBuffer;
   private freqStart: number;
   private resolution: number;
-  private rowCount: number;
+  private historyRows: number;
   private binCount: number;
   private initialData: SpectrumInitialData | undefined;
   private onDisplayRangeChange: ((min: number, max: number) => void) | undefined;
@@ -115,12 +139,20 @@ export class SpectrumCore {
   private onProfileRangeChange: ((id: string, startMHz: number, endMHz: number) => void) | undefined;
   private lastProcessedCount = 0;
   private subviews: SpectrumSubviewCore[] = [];
+  private timeCursor = new TimeCursor();
+  private waterfallResizeObserver: ResizeObserver | null = null;
+  private lastHistoryState: HistoryState | null = null;
+
+  /** Published on every meaningful time-cursor change. Assignable at any time. */
+  onHistoryStateChange: ((state: HistoryState) => void) | null = null;
 
   constructor(frameBuffer: FrameBuffer, options: SpectrumCoreOptions) {
     this.frameBuffer = frameBuffer;
     this.freqStart = options.freqStart;
     this.resolution = options.resolution;
-    this.rowCount = options.rowCount;
+    // Retained depth N is owned by the FrameBuffer; displayed rows D come from
+    // the canvas. Deriving N here keeps the two from ever disagreeing.
+    this.historyRows = frameBuffer.spectrum.rowCount;
     this.binCount = options.binCount;
     this.initialData = options.initialData;
     this.displayMin = options.displayMin ?? -92;
@@ -139,41 +171,133 @@ export class SpectrumCore {
     this.onDisplayRangeChange = options.onDisplayRangeChange;
     this.onReset = options.onReset;
     this.onProfileRangeChange = options.onProfileRangeChange;
+    this.onHistoryStateChange = options.onHistoryStateChange ?? null;
   }
 
+  // The only place rows fan out to layers. Indices handed down are ABSOLUTE --
+  // ring slots stay behind the RingBuffer accessors.
   private processNewRows() {
     const { spectrum, annotations } = this.frameBuffer;
-    const newCount = spectrum.totalWritten - this.lastProcessedCount;
-    if (newCount === 0) return;
-    for (let i = 0; i < newCount; i++) {
-      const row = (this.lastProcessedCount + i) % this.rowCount;
-      const specRow = spectrum.rowView(row);
-      const annRow = annotations.rowView(row);
-      this.maxHold!.push(specRow);
-      this.avgLayer!.push(specRow, spectrum.timestamps[row]);
-      this.occupancyRenderer!.push(specRow);
-      this.waterfallRenderer!.push(row, specRow);
-      this.annotationRenderer!.push(row, annRow);
-      this.timeLabelsController!.push(spectrum.timestamps[row]);
-      for (const sv of this.subviews) sv.push(row, specRow, annRow);
+    const total = spectrum.totalWritten;
+    // Never replay rows that have already been overwritten (e.g. after the tab
+    // was hidden long enough for the ring to lap the last processed row).
+    const from = Math.max(this.lastProcessedCount, spectrum.oldestAbs());
+    if (from >= total) {
+      this.lastProcessedCount = total;
+      return;
     }
-    this.lastProcessedCount = spectrum.totalWritten;
+    for (let abs = from; abs < total; abs++) {
+      const specRow = spectrum.rowViewAbs(abs);
+      const annRow = annotations.rowViewAbs(abs);
+      this.maxHold!.push(specRow);
+      this.avgLayer!.push(specRow, spectrum.timestampAtAbs(abs));
+      this.occupancyRenderer!.push(specRow);
+      this.waterfallRenderer!.push(abs, specRow);
+      this.annotationRenderer!.push(abs, annRow);
+      for (const sv of this.subviews) sv.push(abs, specRow, annRow);
+    }
+    this.lastProcessedCount = total;
+  }
+
+  /**
+   * Waterfall canvas height in CSS pixels -- one displayed row per pixel.
+   *
+   * Floored to match how the canvas backing store is sized, so D never exceeds
+   * the pixels available to draw it and no row ends up zero-height.
+   */
+  private measureDisplayRows(canvas: HTMLCanvasElement): number {
+    return Math.max(1, Math.floor(canvas.getBoundingClientRect().height));
+  }
+
+  private applyDisplayRows(d: number) {
+    this.timeCursor.setDisplayRows(d);
+    this.waterfallRenderer?.setDisplayRows(d);
+    this.annotationRenderer?.setDisplayRows(d);
+    this.liveRenderer?.setDisplayRows(d);
+    this.tooltipController?.setDisplayRows(d);
+  }
+
+  private buildHistoryState(): HistoryState {
+    const { spectrum } = this.frameBuffer;
+    const tc = this.timeCursor;
+    const oldestAbs = spectrum.oldestAbs();
+    const totalWritten = spectrum.totalWritten;
+    const retained = Math.max(1, totalWritten - oldestAbs);
+    const distanceFromLive = Math.max(0, totalWritten - 1 - tc.anchorRow);
+    const scrollSize = Math.min(1, Math.max(0.03, tc.displayRows / retained));
+    const scrollTop = Math.min(1 - scrollSize, Math.max(0, distanceFromLive / retained));
+    return {
+      following: tc.follow,
+      anchorRow: tc.anchorRow,
+      oldestAbs,
+      totalWritten,
+      displayRows: tc.displayRows,
+      timestampMs: spectrum.hasAbs(tc.anchorRow) ? spectrum.timestampAtAbs(tc.anchorRow) : 0,
+      atOldest: tc.atOldest,
+      scrollTop,
+      scrollSize,
+    };
+  }
+
+  // Emitted only on a change a human could see. While live the anchor advances
+  // every frame, so publishing verbatim would re-render the UI at the ingest
+  // rate for a readout that only ticks once a second.
+  private publishHistoryState() {
+    const handler = this.onHistoryStateChange;
+    if (!handler) return;
+    const next = this.buildHistoryState();
+    const prev = this.lastHistoryState;
+    const changed =
+      prev === null ||
+      prev.following !== next.following ||
+      prev.atOldest !== next.atOldest ||
+      Math.floor(prev.timestampMs / 1000) !== Math.floor(next.timestampMs / 1000) ||
+      prev.displayRows !== next.displayRows ||
+      Math.abs(prev.scrollTop - next.scrollTop) > 0.002 ||
+      Math.abs(prev.scrollSize - next.scrollSize) > 0.002;
+    if (!changed) return;
+    this.lastHistoryState = next;
+    handler(next);
+  }
+
+  /** Scroll history by n rows; positive is newer. Leaves follow mode. */
+  scrollHistoryByRows(n: number) {
+    this.timeCursor.scrollByRows(n);
+    this.scheduleRender?.();
+  }
+
+  /** Park the newest visible row at absolute index absRow. Leaves follow mode. */
+  scrollHistoryTo(absRow: number) {
+    this.timeCursor.scrollToAbs(absRow);
+    this.scheduleRender?.();
+  }
+
+  scrollHistoryToLive() {
+    this.timeCursor.scrollToLive();
+    this.scheduleRender?.();
+  }
+
+  /** Park at the oldest retained row, where the treadmill takes over. */
+  scrollHistoryToOldest() {
+    this.timeCursor.scrollToOldest();
+    this.scheduleRender?.();
   }
 
   // oxlint-disable-next-line max-lines-per-function
   mount(refs: SpectrumMountRefs) {
-    const { frameBuffer, rowCount, binCount, initialData, displayMin, displayMax, colormap, layerVisibility, avgTau, occupancyThreshold } = this;
+    const { frameBuffer, historyRows, binCount, initialData, displayMin, displayMax, colormap, layerVisibility, avgTau, occupancyThreshold } = this;
     const { spectrum: buffer, annotations: annotationBuffer } = frameBuffer;
+    const timeCursor = this.timeCursor;
 
     const freqStartMHz = this.freqStart / 1000;
     const freqEndMHz = freqStartMHz + (binCount * this.resolution) / 1000;
 
-    const waterfallRenderer = new WaterfallRenderer(rowCount, binCount, buffer, { displayMin, displayMax, colormap });
+    const waterfallRenderer = new WaterfallRenderer(historyRows, binCount, buffer, { displayMin, displayMax, colormap });
     const liveRenderer = new LiveRenderer(binCount, buffer, { displayMin, displayMax, layerVisibility });
 
     const viewport = new Viewport(binCount, refs.waterfall);
-    waterfallRenderer.mount(refs.waterfall, viewport);
-    liveRenderer.mount(refs.live, viewport);
+    waterfallRenderer.mount(refs.waterfall, viewport, timeCursor);
+    liveRenderer.mount(refs.live, viewport, timeCursor);
 
     const maxHold = new MaxHoldLayer(binCount, initialData?.maxHold);
     liveRenderer.setLayer("max", maxHold.data, "rgba(255, 80, 80, 0.85)");
@@ -182,28 +306,28 @@ export class SpectrumCore {
     liveRenderer.setLayer("avg", avgLayer.data, "rgba(250, 190, 40, 0.85)");
 
     const occupancyRenderer = new OccupancyRenderer(binCount, occupancyThreshold, initialData?.occupancy);
-    occupancyRenderer.mount(refs.occupancy, viewport);
+    occupancyRenderer.mount(refs.occupancy, viewport, timeCursor);
 
-    const annotationRenderer = new AnnotationRenderer(annotationBuffer, rowCount, binCount, layerVisibility.annotations);
-    annotationRenderer.mount(refs.annotation, viewport);
-    liveRenderer.setAnnotation(annotationBuffer, annotationRenderer.rowActivity, rowCount);
+    const annotationRenderer = new AnnotationRenderer(annotationBuffer, historyRows, binCount, layerVisibility.annotations);
+    annotationRenderer.mount(refs.annotation, viewport, timeCursor);
+    liveRenderer.setAnnotation(annotationBuffer, annotationRenderer.rowActivity, historyRows);
 
     const freqAxisController = new FrequencyAxisController(freqStartMHz, freqEndMHz);
     freqAxisController.mount(refs.freqAxis);
 
-    const timeLabelsController = new TimeLabelsController(buffer, rowCount);
+    const timeLabelsController = new TimeLabelsController(buffer, timeCursor);
     timeLabelsController.mount(refs.timeLabels);
 
     const tooltipController = new TooltipController({
       freqStartMHz,
       freqEndMHz,
       binCount,
-      rowCount,
       buffer,
       avgLayer,
       maxHold,
       occupancyLayer: occupancyRenderer,
       viewport,
+      timeCursor,
     });
     tooltipController.mount(refs.tooltip, refs.live, refs.waterfall);
 
@@ -237,6 +361,9 @@ export class SpectrumCore {
 
     const renderAll = () => {
       this.processNewRows();
+      // Bound the anchor before anything reads it, so every layer in this frame
+      // sees the same time window.
+      timeCursor.clamp(buffer.totalWritten, buffer.oldestAbs());
       tooltipController.refresh();
       freqAxisController.update(viewport.start, viewport.end);
       subviewHighlightController.update(viewport.start, viewport.end);
@@ -246,7 +373,9 @@ export class SpectrumCore {
       liveRenderer.render();
       occupancyRenderer.render();
       annotationRenderer.render();
+      timeLabelsController.render();
       for (const sv of this.subviews) sv.render();
+      this.publishHistoryState();
     };
     const scheduleRender = () => {
       if (this.rafHandle !== null) cancelAnimationFrame(this.rafHandle);
@@ -276,7 +405,9 @@ export class SpectrumCore {
       },
     );
 
-    this.waterfallInput = new InputHandler(refs.waterfall, viewport, renderAll);
+    // shift+wheel on the waterfall scrolls time; the live pane keeps plain
+    // frequency zoom only.
+    this.waterfallInput = new InputHandler(refs.waterfall, viewport, renderAll, timeCursor);
     this.liveInput = new InputHandler(refs.live, viewport, renderAll);
 
     this.lastProcessedCount = buffer.totalWritten;
@@ -297,10 +428,26 @@ export class SpectrumCore {
     this.subviewHighlightController = subviewHighlightController;
     this.bandController = bandController;
     this.gridLineController = gridLineController;
+
+    // D is the waterfall height in CSS pixels -- one row per pixel. Nothing is
+    // reallocated when it changes: the waterfall takes a uniform, annotation
+    // blocks are display-size independent, and labels are rebuilt per frame.
+    // Applied after the fields above are set, since applyDisplayRows fans out
+    // through them.
+    this.applyDisplayRows(this.measureDisplayRows(refs.waterfall));
+    this.waterfallResizeObserver = new ResizeObserver((entries) => {
+      const height = entries[0]?.contentRect.height;
+      this.applyDisplayRows(Math.max(1, Math.floor(height ?? 1)));
+      scheduleRender();
+    });
+    this.waterfallResizeObserver.observe(refs.waterfall);
   }
 
   destroy() {
     if (this.rafHandle !== null) cancelAnimationFrame(this.rafHandle);
+    this.waterfallResizeObserver?.disconnect();
+    this.waterfallResizeObserver = null;
+    this.lastHistoryState = null;
     this.frameBuffer.onPush = null;
     this.profileDragHandler?.destroy();
     this.profileDragHandler = null;
@@ -372,7 +519,7 @@ export class SpectrumCore {
     const subview = new SpectrumSubviewCore(
       this.frameBuffer.spectrum,
       this.frameBuffer.annotations,
-      this.rowCount,
+      this.historyRows,
       this.binCount,
       subFreqStart / 1000,
       subFreqEnd / 1000,
@@ -386,6 +533,8 @@ export class SpectrumCore {
       this.avgLayer,
       this.maxHold,
       this.occupancyRenderer.data,
+      this.timeCursor,
+      () => this.scheduleRender?.(),
     );
     subview.mount(refs);
     this.subviews.push(subview);

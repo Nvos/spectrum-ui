@@ -1,4 +1,6 @@
 import { resizeCanvasToDisplaySize } from "twgl.js";
+import { SCROLLED_OVERLAY_ALPHA } from "./overlayDimming";
+import type { TimeCursor } from "./TimeCursor";
 import type { Viewport } from "./Viewport";
 
 export class OccupancyRenderer {
@@ -11,6 +13,7 @@ export class OccupancyRenderer {
   private canvas!: HTMLCanvasElement;
   private ctx!: CanvasRenderingContext2D;
   private viewport!: Viewport;
+  private timeCursor!: TimeCursor;
 
   constructor(
     binCount: number,
@@ -38,12 +41,13 @@ export class OccupancyRenderer {
     }
   }
 
-  mount(canvas: HTMLCanvasElement, viewport: Viewport) {
+  mount(canvas: HTMLCanvasElement, viewport: Viewport, timeCursor: TimeCursor) {
     this.canvas = canvas;
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("2D context not available");
     this.ctx = ctx;
     this.viewport = viewport;
+    this.timeCursor = timeCursor;
   }
 
   render = () => {
@@ -60,6 +64,9 @@ export class OccupancyRenderer {
     const binEnd = Math.ceil(end * binCount);
     const binWidth = Math.max(1, width / (binCount * visibleSpan));
 
+    // Occupancy is an all-time accumulator; recede while scrolled back.
+    ctx.globalAlpha = this.timeCursor.follow ? 1 : SCROLLED_OVERLAY_ALPHA;
+
     for (let b = binStart; b <= binEnd; b++) {
       const occ = data[Math.min(b, binCount - 1)];
       if (occ <= 0) continue;
@@ -67,6 +74,7 @@ export class OccupancyRenderer {
       ctx.fillStyle = `rgba(74, 222, 128, ${occ.toFixed(3)})`;
       ctx.fillRect(x, 0, binWidth + 0.5, height);
     }
+    ctx.globalAlpha = 1;
   };
 
   setThreshold(threshold: number) {

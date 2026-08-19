@@ -5,6 +5,7 @@ import * as styles from "./App.css";
 import {
   COLORMAP_NAMES,
   FrameBuffer,
+  HISTORY_ROWS,
   POWER_CEILING,
   POWER_FLOOR,
   ProfilePanel,
@@ -13,7 +14,7 @@ import {
   SpectrumSubview,
 } from "./Spectrum";
 import type { ProfileRange, SpectrumInitialData } from "./Spectrum";
-import { generateHydrationPayload, generateLiveFrame, MOCK_BIN_COUNT, TICK_MS } from "./mock";
+import { generateHydrationPayload, generateLiveFrame, TICK_MS } from "./mock";
 import type { HydrationPayload } from "./mock";
 import {
   avgTauAtom,
@@ -37,7 +38,10 @@ const SUBVIEW_PALETTE = [
 ];
 
 const DEFAULT_BINS = 4000;
-const DEFAULT_ROWS = 300;
+// Retained history depth N. Deliberately NOT the displayed row count -- the
+// waterfall shows one row per CSS pixel of pane height, so D is a few hundred
+// while N is thousands. The difference is what there is to scroll through.
+const DEFAULT_HISTORY_ROWS = HISTORY_ROWS;
 
 const DEMO_BANDS: Band[] = [
   // ───────────────────────────────────────────────────────────────────────
@@ -544,11 +548,14 @@ const AVG_TAU_LABELS: Record<number, string> = {
   10000: "10s",
 };
 
-type SpectrumParams = { freqStart: number; resolution: number; binCount: number; rowCount: number };
+type SpectrumParams = { freqStart: number; resolution: number; binCount: number; historyRows: number };
 type SpectrumConfig = { params: SpectrumParams; initialData?: SpectrumInitialData };
 
-const useMockInterval = (frameBuffer: FrameBuffer | null) => {
-  const frameBytesRef = useRef(new Uint8Array(12 + 2 * MOCK_BIN_COUNT));
+const useMockInterval = (frameBuffer: FrameBuffer | null, binCount: number) => {
+  const frameBytesRef = useRef(new Uint8Array(12 + 2 * binCount));
+  if (frameBytesRef.current.length !== 12 + 2 * binCount) {
+    frameBytesRef.current = new Uint8Array(12 + 2 * binCount);
+  }
 
   const processFrame = useCallback(
     (frame: string) => {
@@ -570,7 +577,7 @@ const useMockInterval = (frameBuffer: FrameBuffer | null) => {
     if (!frameBuffer) return;
     let handle: ReturnType<typeof setInterval> | null = null;
     const start = () => {
-      handle = setInterval(() => processFrame(generateLiveFrame(MOCK_BIN_COUNT)), TICK_MS);
+      handle = setInterval(() => processFrame(generateLiveFrame(binCount)), TICK_MS);
     };
     const stop = () => {
       if (handle !== null) {
@@ -585,7 +592,7 @@ const useMockInterval = (frameBuffer: FrameBuffer | null) => {
       stop();
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [processFrame]);
+  }, [processFrame, binCount]);
 };
 
 // Bridges Jotai atoms → SpectrumCore imperative API.
@@ -617,7 +624,7 @@ const DEFAULT_PARAMS: SpectrumParams = {
   freqStart: 25_000,
   resolution: 1500,
   binCount: DEFAULT_BINS,
-  rowCount: DEFAULT_ROWS,
+  historyRows: DEFAULT_HISTORY_ROWS,
 };
 
 // Inner component — lives inside <Provider store={store}> so atom hooks work.
@@ -636,13 +643,13 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
   const subviewsRowRef = useRef<HTMLDivElement>(null);
 
   const [config, setConfig] = useState<SpectrumConfig | null>(() => {
-    const initialData = decodeHydration(generateHydrationPayload());
+    const initialData = decodeHydration(generateHydrationPayload(DEFAULT_BINS));
     return {
       params: {
         freqStart: 25_000,
         resolution: 1500,
         binCount: DEFAULT_BINS,
-        rowCount: DEFAULT_ROWS,
+        historyRows: DEFAULT_HISTORY_ROWS,
       },
       initialData,
     };
@@ -652,7 +659,7 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
     if (!config) return { frameBuffer: null, core: null };
     const { params, initialData } = config;
     const fb = new FrameBuffer(
-      params.rowCount,
+      params.historyRows,
       params.binCount,
       initialData?.spectrum,
       initialData?.annotations,
@@ -678,7 +685,7 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config]);
 
-  useMockInterval(frameBuffer);
+  useMockInterval(frameBuffer, config?.params.binCount ?? DEFAULT_BINS);
   useSpectrumCoreBridge(store, core);
 
   useEffect(() => {
@@ -755,7 +762,9 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
   };
 
   const handleRehydrate = () => {
-    const newData = decodeHydration(generateHydrationPayload());
+    // Must match the configured bin count — hydration rows are copied into the
+    // ring by byte offset, so a narrower payload smears across row boundaries.
+    const newData = decodeHydration(generateHydrationPayload(config?.params.binCount ?? DEFAULT_BINS));
     store.set(occupancyThresholdAtom, newData.occupancy.threshold);
     setConfig((prev) => (prev ? { params: prev.params, initialData: newData } : null));
   };
@@ -893,7 +902,7 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
             { key: "freqStart" as const, label: "freqStart (kHz)" },
             { key: "resolution" as const, label: "resolution (kHz/bin)" },
             { key: "binCount" as const, label: "binCount" },
-            { key: "rowCount" as const, label: "rowCount" },
+            { key: "historyRows" as const, label: "historyRows (N)" },
           ] as const
         ).map(({ key, label }) => (
           <label

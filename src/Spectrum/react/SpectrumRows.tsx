@@ -1,4 +1,4 @@
-import type { RefObject } from "react";
+import type { ReactNode, RefObject } from "react";
 import * as styles from "./SpectrumRows.css";
 
 type BandRowProps = {
@@ -53,15 +53,18 @@ type WaterfallRowProps = {
   annotationRef: RefObject<HTMLCanvasElement | null>;
   timeLabelsRef: RefObject<HTMLDivElement | null>;
   colormapLegendRef: RefObject<HTMLDivElement | null>;
+  /** History scrollbar / follow indicator, overlaid on the waterfall. */
+  overlay?: ReactNode;
 };
 
-export const WaterfallRow = ({ waterfallRef, annotationRef, timeLabelsRef, colormapLegendRef }: WaterfallRowProps) => {
+export const WaterfallRow = ({ waterfallRef, annotationRef, timeLabelsRef, colormapLegendRef, overlay }: WaterfallRowProps) => {
   return (
     <div className={styles.waterfallRow}>
       <div ref={timeLabelsRef} className={styles.timeLabels} />
       <div className={styles.waterfallCanvasContainer}>
         <canvas className={styles.waterfallCanvas} ref={waterfallRef} />
         <canvas className={styles.annotationCanvas} ref={annotationRef} />
+        {overlay}
       </div>
       <div ref={colormapLegendRef} />
     </div>
@@ -80,6 +83,7 @@ type LayoutProps = {
   colormapLegendRef: RefObject<HTMLDivElement | null>;
   bandContainerRef: RefObject<HTMLDivElement | null>;
   gridContainerRef: RefObject<HTMLDivElement | null>;
+  waterfallOverlay?: ReactNode;
 };
 
 export const SpectrumLayout = ({
@@ -94,6 +98,7 @@ export const SpectrumLayout = ({
   colormapLegendRef,
   bandContainerRef,
   gridContainerRef,
+  waterfallOverlay,
 }: LayoutProps) => {
   return (
     <div className={styles.layout}>
@@ -113,6 +118,7 @@ export const SpectrumLayout = ({
           annotationRef={annotationRef}
           timeLabelsRef={timeLabelsRef}
           colormapLegendRef={colormapLegendRef}
+          overlay={waterfallOverlay}
         />
       </div>
     </div>

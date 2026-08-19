@@ -1,135 +1,137 @@
 import * as styles from "./styles.css";
 import type { RingBuffer } from "./RingBuffer";
+import type { TimeCursor } from "./TimeCursor";
 
-const MIN_LABEL_SPACING_PX = 80;
-const MAX_LABELS = 8;
+const MIN_LABEL_SPACING_PX = 44;
+const MAX_LABELS = 12;
 
-type ActiveLabel = {
-  createdAt: number;
-  createdTs: number;
-  lastAgeSec: number;
+/** Wall-clock boundaries a label may land on, in seconds. */
+const INTERVALS_SEC = [1, 5, 10, 30, 60, 300, 600, 1800, 3600];
+
+type PooledLabel = {
   el: HTMLDivElement;
   textEl: HTMLSpanElement;
+  lastText: string;
+  lastTop: string;
 };
 
-const createLabel = (
-  container: HTMLElement,
-  ts: number,
-  totalPushed: number,
-): ActiveLabel => {
-  const el = document.createElement("div");
-  el.className = styles.timeLabelRow;
-  const textEl = document.createElement("span");
-  textEl.className = styles.timeLabelText;
-  textEl.textContent = "-0s";
-  const tick = document.createElement("div");
-  tick.className = styles.timeLabelTick;
-  el.append(textEl, tick);
-  container.append(el);
-  return { createdAt: totalPushed, createdTs: ts, lastAgeSec: 0, el, textEl };
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+const formatClock = (ms: number): string => {
+  const d = new Date(ms);
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
 };
 
-const calcRowInterval = (containerHeight: number, rowCount: number): number => {
-  const labelCount = Math.min(
-    MAX_LABELS,
-    Math.max(1, Math.floor(containerHeight / MIN_LABEL_SPACING_PX)),
-  );
-  return Math.max(1, Math.floor(rowCount / labelCount));
-};
-
+/**
+ * Absolute wall-clock labels for the visible waterfall window.
+ *
+ * Declarative: every frame walks the rows currently on screen and emits a label
+ * wherever the clock crosses an interval boundary. The previous design created
+ * a label every `rowInterval` pushes and moved it by age, which structurally
+ * could not render a frozen or scrolled window.
+ *
+ * DOM nodes are pooled — a long session creates at most `MAX_LABELS` of them.
+ */
 export class TimeLabelsController {
   private buffer: RingBuffer;
-  private rowCount: number;
-  private labels: ActiveLabel[] = [];
-  private totalPushed = 0;
-  private rowInterval = 1;
+  private timeCursor: TimeCursor;
+  private pool: PooledLabel[] = [];
   private container: HTMLElement | null = null;
-  private ro: ResizeObserver | null = null;
 
-  constructor(buffer: RingBuffer, rowCount: number) {
+  constructor(buffer: RingBuffer, timeCursor: TimeCursor) {
     this.buffer = buffer;
-    this.rowCount = rowCount;
+    this.timeCursor = timeCursor;
   }
 
   mount(container: HTMLElement) {
     this.container = container;
-    this.rowInterval = calcRowInterval(container.clientHeight, this.rowCount);
-
-    this.replayLabels();
-
-    this.ro = new ResizeObserver((entries) => {
-      const height = entries[0]?.contentRect.height ?? container.clientHeight;
-      const newInterval = calcRowInterval(height, this.rowCount);
-      if (newInterval !== this.rowInterval) {
-        this.rowInterval = newInterval;
-        this.replayLabels();
-      }
-    });
-    this.ro.observe(container);
+    this.render();
   }
 
-  private updatePositions(newestTs: number) {
-    const { labels, rowCount, totalPushed } = this;
-    for (let i = labels.length - 1; i >= 0; i--) {
-      const label = labels[i];
-      const age = totalPushed - 1 - label.createdAt;
-      const pct = (age / (rowCount - 1)) * 100;
-      if (pct > 100) {
-        label.el.remove();
-        labels.splice(i, 1);
-      } else {
-        label.el.style.top = `${pct}%`;
-        const ageSec = Math.round((newestTs - label.createdTs) / 1000);
-        if (ageSec !== label.lastAgeSec) {
-          label.lastAgeSec = ageSec;
-          label.textEl.textContent = `${ageSec}s`;
-        }
-      }
+  private acquire(index: number): PooledLabel {
+    let label = this.pool[index];
+    if (!label) {
+      const el = document.createElement("div");
+      el.className = styles.timeLabelRow;
+      const textEl = document.createElement("span");
+      textEl.className = styles.timeLabelText;
+      const tick = document.createElement("div");
+      tick.className = styles.timeLabelTick;
+      el.append(textEl, tick);
+      this.container!.append(el);
+      label = { el, textEl, lastText: "", lastTop: "" };
+      this.pool[index] = label;
     }
+    return label;
   }
 
-  private replayLabels() {
+  render = () => {
     const container = this.container;
     if (!container) return;
 
-    for (const label of this.labels) label.el.remove();
-    this.labels = [];
-    this.totalPushed = 0;
+    const { buffer, timeCursor } = this;
+    const D = timeCursor.displayRows;
+    const anchor = timeCursor.anchorRow;
+    const oldest = buffer.oldestAbs();
 
-    const { buffer, rowCount, rowInterval } = this;
-    for (let di = 0; di < rowCount; di++) {
-      const rowIdx = (buffer.writeRow + di) % rowCount;
-      const ts = buffer.timestamps[rowIdx];
-      if (ts === 0) continue;
+    if (anchor < oldest || !buffer.hasAbs(anchor)) {
+      this.hideFrom(0);
+      return;
+    }
 
-      if (this.totalPushed > 0 && this.totalPushed % rowInterval === 0) {
-        this.labels.push(createLabel(container, ts, this.totalPushed));
+    const bottom = Math.max(oldest, anchor - D + 1);
+    const height = container.clientHeight || 1;
+    const maxLabels = Math.max(
+      1,
+      Math.min(MAX_LABELS, Math.floor(height / MIN_LABEL_SPACING_PX)),
+    );
+
+    // Interval comes from the span the window actually covers, so labels
+    // re-space sensibly on resize and at any ingest rate.
+    const spanSec = Math.max(0, (buffer.timestampAtAbs(anchor) - buffer.timestampAtAbs(bottom)) / 1000);
+    const interval =
+      INTERVALS_SEC.find((s) => spanSec / s <= maxLabels) ?? INTERVALS_SEC[INTERVALS_SEC.length - 1];
+
+    const bucketOf = (absRow: number) => Math.floor(buffer.timestampAtAbs(absRow) / 1000 / interval);
+
+    let used = 0;
+    let prevBucket = bucketOf(bottom);
+    for (let abs = bottom + 1; abs <= anchor && used < maxLabels + 1; abs++) {
+      const bucket = bucketOf(abs);
+      if (bucket === prevBucket) continue;
+      prevBucket = bucket;
+      if (buffer.timestampAtAbs(abs) <= 0) continue;
+
+      const label = this.acquire(used);
+      const top = `${((anchor - abs) / D) * 100}%`;
+      // Label the boundary itself, not the row's exact timestamp, so the text
+      // reads as a clean tick on the clock.
+      const text = formatClock(bucket * interval * 1000);
+      if (label.lastTop !== top) {
+        label.el.style.top = top;
+        label.lastTop = top;
       }
-      this.totalPushed++;
+      if (label.lastText !== text) {
+        label.textEl.textContent = text;
+        label.lastText = text;
+      }
+      if (label.el.style.display === "none") label.el.style.display = "";
+      used++;
     }
 
-    if (this.labels.length > 0) {
-      const newestIdx = (buffer.writeRow - 1 + rowCount) % rowCount;
-      const newestTs = buffer.timestamps[newestIdx];
-      this.updatePositions(newestTs);
-    }
-  }
+    this.hideFrom(used);
+  };
 
-  push(timestampMs: number) {
-    const container = this.container;
-    if (!container) return;
-    if (this.totalPushed > 0 && this.totalPushed % this.rowInterval === 0) {
-      this.labels.push(createLabel(container, timestampMs, this.totalPushed));
+  private hideFrom(index: number) {
+    for (let i = index; i < this.pool.length; i++) {
+      const el = this.pool[i].el;
+      if (el.style.display !== "none") el.style.display = "none";
     }
-    this.totalPushed++;
-    this.updatePositions(timestampMs);
   }
 
   destroy() {
-    this.ro?.disconnect();
-    for (const label of this.labels) label.el.remove();
-    this.labels = [];
-    this.totalPushed = 0;
+    for (const label of this.pool) label.el.remove();
+    this.pool = [];
     this.container = null;
   }
 }

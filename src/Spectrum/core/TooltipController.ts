@@ -4,6 +4,7 @@ import type { AverageLayer } from "./AverageLayer";
 import type { MaxHoldLayer } from "./MaxHoldLayer";
 import type { OccupancyRenderer } from "./OccupancyRenderer";
 import type { RingBuffer } from "./RingBuffer";
+import type { TimeCursor } from "./TimeCursor";
 import type { Viewport } from "./Viewport";
 import type { NormalizedRange } from "./ProfileTypes";
 
@@ -18,8 +19,8 @@ type TooltipOptions = {
   freqStartMHz: number;
   freqEndMHz: number;
   binCount: number;
-  rowCount: number;
   buffer: RingBuffer;
+  timeCursor: TimeCursor;
   avgLayer: AverageLayer;
   maxHold: MaxHoldLayer;
   occupancyLayer?: OccupancyRenderer;
@@ -38,15 +39,14 @@ export class TooltipController {
   private waterfallCanvas: HTMLCanvasElement | null = null;
   private lastMouse: MousePosition | null = null;
   private profileRanges: NormalizedRange[] = [];
-  private displayRowCount: number;
+  private displayRows = 1;
 
   constructor(opts: TooltipOptions) {
     this.opts = opts;
-    this.displayRowCount = opts.rowCount;
   }
 
-  setDisplayRowCount(n: number) {
-    this.displayRowCount = n;
+  setDisplayRows(n: number) {
+    this.displayRows = Math.max(1, Math.round(n));
   }
 
   setProfileRanges(ranges: NormalizedRange[]) {
@@ -82,6 +82,7 @@ export class TooltipController {
       maxHold,
       occupancyLayer,
       viewport,
+      timeCursor,
     } = this.opts;
 
     const viewNorm =
@@ -94,20 +95,19 @@ export class TooltipController {
       0,
       Math.min(binCount - 1, Math.floor(viewNorm * binCount)),
     );
-    const row =
+    // Absolute row under the cursor, measured down from the anchor. Hovering
+    // the live pane reads the anchor row itself.
+    const absRow =
       pos.waterfallNormY === undefined
-        ? (buffer.writeRow - 1 + buffer.rowCount) % buffer.rowCount
-        : (buffer.writeRow -
-            1 -
-            Math.floor(pos.waterfallNormY * (this.displayRowCount - 1)) +
-            buffer.rowCount * 2) %
-          buffer.rowCount;
+        ? timeCursor.anchorRow
+        : timeCursor.anchorRow - Math.floor(pos.waterfallNormY * this.displayRows);
+    const available = buffer.hasAbs(absRow);
 
-    const dbm = buffer.data[row * binCount + binIndex];
+    const dbm = available ? buffer.sampleAbs(absRow, binIndex) : undefined;
     const avg = avgLayer.data[binIndex];
     const max = maxHold.data[binIndex];
     const occ = occupancyLayer?.data[binIndex];
-    const ts = buffer.timestamps[row];
+    const ts = available ? buffer.timestampAtAbs(absRow) : 0;
 
     const cell = (label: string, value: string) =>
       `<span class="${styles.tooltipLabel}">${label}</span><span>${value}</span>`;
@@ -119,7 +119,7 @@ export class TooltipController {
     tt.innerHTML =
       (ts > 0 ? cell("time", new Date(ts).toLocaleTimeString()) : "") +
       cell("freq", `${freqMHz.toFixed(3)} MHz`) +
-      cell("live", `${dbm} dBm`) +
+      cell("live", dbm === undefined ? "—" : `${dbm} dBm`) +
       (avg !== undefined ? cell("avg", `${avg.toFixed(1)} dBm`) : "") +
       (max !== undefined && isFinite(max)
         ? cell("max", `${max.toFixed(1)} dBm`)

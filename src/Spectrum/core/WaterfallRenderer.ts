@@ -10,40 +10,46 @@ import {
   setUniforms,
 } from "twgl.js";
 import { buildLUT, COLORMAPS, LUT_SIZE } from "./colormaps";
+import { POWER_NO_READING } from "./constants";
 import { RingBuffer } from "./RingBuffer";
+import { TimeCursor } from "./TimeCursor";
 import { Viewport } from "./Viewport";
 
 export type WaterfallSettings = {
   displayMin: number;
   displayMax: number;
   colormap: number;
+  /** First bin stored in the texture. Subviews crop; the main view uses 0. */
+  binStart?: number;
+  /** Bins stored in the texture. Subviews crop; the main view uses `binCount`. */
+  binSpan?: number;
 };
 
-// Each row is a quad positioned in clip space.
-// The vertex shader only translates Y — no ring-buffer math.
+// Colour painted where no row exists — above the write head, or past the
+// oldest retained row.
+const BLANK_COLOR = [0.039, 0.039, 0.039];
+
+// One full-screen quad. Row addressing happens per-fragment, so there is no
+// geometry to rebuild when the pane resizes or the view scrolls.
 const vs = `#version 300 es
 in vec2 aPosition;
-in vec2 aTexCoord;
-
-uniform float uTimeTranslation;
-uniform float uViewStart;
-uniform float uViewEnd;
-
-out vec2 vTexCoord;
+out vec2 vUV;
 
 void main() {
-    float tx = uViewStart + aTexCoord.x * (uViewEnd - uViewStart);
-    vTexCoord = vec2(tx, aTexCoord.y);
-    gl_Position = vec4(aPosition.x, aPosition.y + uTimeTranslation, 0.0, 1.0);
+    vUV = aPosition * 0.5 + 0.5;
+    gl_Position = vec4(aPosition, 0.0, 1.0);
 }
 `;
 
-// Fragment shader is trivial: sample + normalize + colormap.
-// No ring-buffer indexing, no canvas-size math.
+// The texture IS the ring buffer, uHistoryRows tall. A fragment maps its
+// distance from the top edge to an absolute row, then to a ring slot.
+// Scrolling costs one uniform and zero uploads.
 const fs = `#version 300 es
 precision highp float;
+precision highp int;
+precision highp sampler2D;
 
-in vec2 vTexCoord;
+in vec2 vUV;
 
 uniform sampler2D uWaterfallTexture;
 uniform sampler2D uColormapLUT;
@@ -51,84 +57,46 @@ uniform float uPowerMin;
 uniform float uDisplayMax;
 uniform float uHighlightStart;
 uniform float uHighlightEnd;
+uniform float uViewStart;
+uniform float uViewEnd;
+uniform vec3 uBlankColor;
+uniform int uBinCount;
+uniform int uSubBinStart;
+uniform int uSubBins;
+uniform int uAnchorRow;
+uniform int uOldestValid;
+uniform int uDisplayRows;
+uniform int uHistoryRows;
 
 out vec4 outPixelColor;
 
 void main() {
-    float s = texture(uWaterfallTexture, vTexCoord).r;
+    float tx = mix(uViewStart, uViewEnd, vUV.x);
+    int binX = clamp(int(tx * float(uBinCount)) - uSubBinStart, 0, uSubBins - 1);
+
+    int rowFromTop = int(floor(float(uDisplayRows) * (1.0 - vUV.y)));
+    int absRow = uAnchorRow - rowFromTop;
+
+    if (absRow < uOldestValid || absRow < 0) {
+        outPixelColor = vec4(uBlankColor, 1.0);
+        return;
+    }
+
+    // texelFetch reproduces NEAREST sampling exactly - no filtering, no
+    // half-texel offsets - so the row/pixel mapping is exact by construction.
+    float s = texelFetch(uWaterfallTexture, ivec2(binX, absRow % uHistoryRows), 0).r;
     float dBm = s * 127.0;
     float normalizedPower = clamp(
         (dBm - uPowerMin) / (uDisplayMax - uPowerMin),
         0.0, 1.0
     );
     vec3 rgb = texture(uColormapLUT, vec2(normalizedPower, 0.5)).rgb;
-    if (uHighlightStart < uHighlightEnd &&
-        vTexCoord.x >= uHighlightStart && vTexCoord.x <= uHighlightEnd) {
+    if (uHighlightStart < uHighlightEnd && tx >= uHighlightStart && tx <= uHighlightEnd) {
         rgb = mix(rgb, vec3(1.0), 0.22);
     }
     outPixelColor = vec4(rgb, 1.0);
 }
 `;
-
-// Build geometry for rowCount * 2 row-quads.
-//
-// First copy  (i = 0..N-1):   quad i covers y = [-1+i*rowH, -1+(i+1)*rowH]
-//   → row 0 is at the bottom, row N-1 is at the top.
-// Second copy (i = N..2N-1):  same quads shifted 2 units DOWN (y - 2).
-//   → covers y = [-3+i*rowH, -3+(i+1)*rowH]
-//
-// uTimeTranslation = 2 - writeRow*(2/N) scrolls the belt downward.
-// As writeRow goes 0→N the translation goes 2→0; when writeRow wraps,
-// it snaps back to 2 and the second copy seamlessly takes over.
-const buildRowGeometry = (rowCount: number) => {
-  const totalRows = rowCount * 2;
-  const rowH = 2.0 / rowCount;
-
-  const positions = new Float32Array(totalRows * 4 * 2);
-  const texCoords = new Float32Array(totalRows * 4 * 2);
-  const indices = new Uint32Array(totalRows * 6);
-
-  for (let i = 0; i < totalRows; i++) {
-    const texRow = i % rowCount;
-    const base = i < rowCount ? -1.0 : -3.0; // second copy 2 units below
-    const localI = i % rowCount;
-    const yBot = base + localI * rowH;
-    const yTop = base + (localI + 1) * rowH;
-    const ty = (texRow + 0.5) / rowCount;
-
-    const v = i * 4;
-
-    // BL, BR, TL, TR
-    positions[v * 2 + 0] = -1;
-    positions[v * 2 + 1] = yBot;
-    positions[v * 2 + 2] = 1;
-    positions[v * 2 + 3] = yBot;
-    positions[v * 2 + 4] = -1;
-    positions[v * 2 + 5] = yTop;
-    positions[v * 2 + 6] = 1;
-    positions[v * 2 + 7] = yTop;
-
-    // X runs 0→1 (viewport transform applied in vertex shader); Y is fixed per row.
-    texCoords[v * 2 + 0] = 0;
-    texCoords[v * 2 + 1] = ty;
-    texCoords[v * 2 + 2] = 1;
-    texCoords[v * 2 + 3] = ty;
-    texCoords[v * 2 + 4] = 0;
-    texCoords[v * 2 + 5] = ty;
-    texCoords[v * 2 + 6] = 1;
-    texCoords[v * 2 + 7] = ty;
-
-    const idx = i * 6;
-    indices[idx + 0] = v + 0;
-    indices[idx + 1] = v + 1;
-    indices[idx + 2] = v + 2;
-    indices[idx + 3] = v + 1;
-    indices[idx + 4] = v + 3;
-    indices[idx + 5] = v + 2;
-  }
-
-  return { positions, texCoords, indices };
-}
 
 export class WaterfallRenderer {
   canvas!: HTMLCanvasElement;
@@ -137,16 +105,18 @@ export class WaterfallRenderer {
   programInfo!: ProgramInfo;
   texture!: WebGLTexture;
   lutTexture!: WebGLTexture;
-  rowCount: number;
+  historyRows: number;
   binCount: number;
   ringBuffer: RingBuffer;
   viewport!: Viewport;
+  timeCursor!: TimeCursor;
 
-  // Monotonically-increasing push counter, independent of the parent ring
-  // buffer's own rowCount. This keeps texture write positions and the render
-  // translation in sync even when the parent ring buffer wraps at a size that
-  // is not a multiple of this renderer's rowCount.
-  private pushedCount: number = 0;
+  /** Displayed rows D. A uniform, not a texture size, so resize never reallocates. */
+  private displayRows = 1;
+
+  /** Texture bin window. Subviews store only the bins they can ever display. */
+  private readonly texBinStart: number;
+  private readonly texBins: number;
 
   private powerMin: number;
   private displayMax: number;
@@ -155,14 +125,16 @@ export class WaterfallRenderer {
   private highlightEnd = 0;
 
   constructor(
-    rowCount: number,
+    historyRows: number,
     binCount: number,
     buffer: RingBuffer,
     settings: WaterfallSettings,
   ) {
-    this.rowCount = rowCount;
+    this.historyRows = historyRows;
     this.binCount = binCount;
     this.ringBuffer = buffer;
+    this.texBinStart = Math.max(0, Math.min(binCount - 1, settings.binStart ?? 0));
+    this.texBins = Math.max(1, Math.min(binCount - this.texBinStart, settings.binSpan ?? binCount));
     this.powerMin = settings.displayMin;
     this.displayMax = settings.displayMax;
     this.currentLUT = buildLUT(COLORMAPS[settings.colormap]);
@@ -170,7 +142,7 @@ export class WaterfallRenderer {
 
   destroy() {}
 
-  mount(canvas: HTMLCanvasElement, viewport: Viewport) {
+  mount(canvas: HTMLCanvasElement, viewport: Viewport, timeCursor: TimeCursor) {
     if (!canvas) throw new Error("Canvas not mounted");
     this.canvas = canvas;
 
@@ -183,27 +155,35 @@ export class WaterfallRenderer {
     this.ctx = ctx;
     const gl = this.ctx;
 
+    // Height is ours (N = 4096, always safe); width is the binding dimension.
+    // Fail loudly rather than rendering black on a device that cannot hold it.
+    const maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
+    if (this.texBins > maxTextureSize || this.historyRows > maxTextureSize) {
+      throw new Error(
+        `Waterfall needs a ${this.texBins}x${this.historyRows} texture but this device ` +
+          `reports MAX_TEXTURE_SIZE=${maxTextureSize}. Reduce binCount or history depth.`,
+      );
+    }
+
     this.programInfo = createProgramInfo(gl, [vs, fs]);
 
-    const geo = buildRowGeometry(this.rowCount);
     this.bufferInfo = createBufferInfoFromArrays(gl, {
-      aPosition: { numComponents: 2, data: geo.positions },
-      aTexCoord: { numComponents: 2, data: geo.texCoords },
-      indices: geo.indices,
+      aPosition: { numComponents: 2, data: [-1, -1, 1, -1, -1, 1, 1, 1] },
+      indices: [0, 1, 2, 2, 1, 3],
     });
 
-    this.pushedCount = this.ringBuffer.totalWritten;
+    // Rows are not necessarily a multiple of 4 bytes wide once cropped.
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+
     this.texture = createTexture(gl, {
-      width: this.binCount,
-      height: this.rowCount,
+      width: this.texBins,
+      height: this.historyRows,
       format: gl.RED,
       internalFormat: gl.R8_SNORM,
       type: gl.BYTE,
       minMag: gl.NEAREST,
       wrap: gl.CLAMP_TO_EDGE,
-      src: this.ringBuffer.data.length === this.binCount * this.rowCount
-        ? this.ringBuffer.data
-        : this.buildInitialTextureData(),
+      src: this.buildInitialTextureData(),
     });
 
     this.lutTexture = createTexture(gl, {
@@ -218,6 +198,25 @@ export class WaterfallRenderer {
     });
 
     this.viewport = viewport;
+    this.timeCursor = timeCursor;
+  }
+
+  // The texture is the ring buffer 1:1, so an uncropped view uploads it as-is.
+  private buildInitialTextureData(): Int8Array {
+    if (
+      this.texBins === this.binCount &&
+      this.ringBuffer.data.length === this.binCount * this.historyRows
+    ) {
+      return this.ringBuffer.data;
+    }
+    const data = new Int8Array(this.texBins * this.historyRows).fill(POWER_NO_READING);
+    const { texBinStart, texBins } = this;
+    const ringRows = Math.min(this.historyRows, this.ringBuffer.rowCount);
+    for (let slot = 0; slot < ringRows; slot++) {
+      const row = this.ringBuffer.rowViewAbs(slot);
+      data.set(row.subarray(texBinStart, texBinStart + texBins), slot * texBins);
+    }
+    return data;
   }
 
   render = () => {
@@ -230,28 +229,25 @@ export class WaterfallRenderer {
     resizeCanvasToDisplaySize(canvas, window.devicePixelRatio || 1);
     this.ctx.viewport(0, 0, this.ctx.canvas.width, this.ctx.canvas.height);
 
-    // Shift the geometry so the most-recently-written row sits at the top.
-    // Goes from 2→0 as writeRow advances 0→N; when writeRow wraps the second
-    // geometry copy takes over so there is no visual jump.
-    // Snap to pixel grid to prevent sub-pixel drift from causing rows to
-    // alternate between 1px and 2px tall as the geometry moves each tick.
-    const writeRow = this.pushedCount % this.rowCount;
-    const rawTranslation = 2.0 - writeRow * (2.0 / this.rowCount);
-    const pixelSize = 2.0 / this.ctx.canvas.height;
-    const uTimeTranslation = Math.round(rawTranslation / pixelSize) * pixelSize;
-
     this.ctx.useProgram(this.programInfo.program);
     setBuffersAndAttributes(this.ctx, this.programInfo, this.bufferInfo);
     setUniforms(this.programInfo, {
       uWaterfallTexture: this.texture,
       uColormapLUT: this.lutTexture,
-      uTimeTranslation,
       uViewStart: this.viewport.start,
       uViewEnd: this.viewport.end,
       uPowerMin: this.powerMin,
       uDisplayMax: this.displayMax,
       uHighlightStart: this.highlightStart,
       uHighlightEnd: this.highlightEnd,
+      uBlankColor: BLANK_COLOR,
+      uBinCount: this.binCount,
+      uSubBinStart: this.texBinStart,
+      uSubBins: this.texBins,
+      uAnchorRow: this.timeCursor.anchorRow,
+      uOldestValid: this.ringBuffer.oldestAbs(),
+      uDisplayRows: this.displayRows,
+      uHistoryRows: this.historyRows,
     });
 
     drawBufferInfo(this.ctx, this.bufferInfo, this.ctx.TRIANGLES);
@@ -267,57 +263,22 @@ export class WaterfallRenderer {
     this.highlightEnd = 0;
   }
 
-  setRowCount(n: number) {
-    if (n === this.rowCount || !this.ctx) return;
-    this.rowCount = n;
-    const gl = this.ctx;
-
-    const geo = buildRowGeometry(n);
-    this.bufferInfo = createBufferInfoFromArrays(gl, {
-      aPosition: { numComponents: 2, data: geo.positions },
-      aTexCoord: { numComponents: 2, data: geo.texCoords },
-      indices: geo.indices,
-    });
-
-    this.pushedCount = this.ringBuffer.totalWritten;
-    gl.deleteTexture(this.texture);
-    this.texture = createTexture(gl, {
-      width: this.binCount,
-      height: n,
-      format: gl.RED,
-      internalFormat: gl.R8_SNORM,
-      type: gl.BYTE,
-      minMag: gl.NEAREST,
-      wrap: gl.CLAMP_TO_EDGE,
-      src: this.buildInitialTextureData(),
-    });
-
-    this.render();
+  /** D changed (pane resize). A uniform: no texture work, no geometry rebuild. */
+  setDisplayRows(n: number) {
+    this.displayRows = Math.max(1, Math.round(n));
   }
 
-  private buildInitialTextureData(): Int8Array {
-    const D = this.rowCount;
-    const N = this.ringBuffer.rowCount;
-    const T = this.ringBuffer.totalWritten;
-    const data = new Int8Array(this.binCount * D).fill(-128);
-    const rowsToCopy = Math.min(D, T);
-    for (let i = 0; i < rowsToCopy; i++) {
-      const writtenRow = T - rowsToCopy + i;
-      const bufRow = writtenRow % N;
-      const texRow = writtenRow % D;
-      data.set(
-        this.ringBuffer.data.subarray(bufRow * this.binCount, (bufRow + 1) * this.binCount),
-        texRow * this.binCount,
-      );
-    }
-    return data;
-  }
-
-  push(_writtenRow: number, row: Int8Array) {
+  /** Upload one row at its ring slot. `absRow` is in `totalWritten` space. */
+  push(absRow: number, row: Int8Array) {
     const gl = this.ctx;
+    if (!gl) return;
+    const slot = absRow % this.historyRows;
+    const src =
+      this.texBins === this.binCount
+        ? row
+        : row.subarray(this.texBinStart, this.texBinStart + this.texBins);
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, this.pushedCount % this.rowCount, this.binCount, 1, gl.RED, gl.BYTE, row);
-    this.pushedCount++;
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, slot, this.texBins, 1, gl.RED, gl.BYTE, src);
   }
 
   updateColormap(lut: Uint8Array) {

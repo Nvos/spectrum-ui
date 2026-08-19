@@ -13,29 +13,28 @@ export class AverageLayer {
     this.data = new Float32Array(binCount);
 
     // Warm up EMA from any pre-filled historical rows (oldest → newest).
-    const { rowCount, writeRow } = buffer;
-    for (let di = 0; di < rowCount; di++) {
-      const rowIdx = (writeRow + di) % rowCount;
-      if (buffer.timestamps[rowIdx] === 0) {
+    const newest = buffer.totalWritten - 1;
+    for (let abs = buffer.oldestAbs(); abs <= newest; abs++) {
+      const ts = buffer.timestampAtAbs(abs);
+      if (ts === 0) {
         this.initialized = false;
         continue;
       }
-      const offset = rowIdx * binCount;
+      const row = buffer.rowViewAbs(abs);
       if (!this.initialized) {
-        for (let b = 0; b < binCount; b++) this.data[b] = buffer.data[offset + b];
+        for (let b = 0; b < binCount; b++) this.data[b] = row[b];
         this.initialized = true;
         continue;
       }
-      const prevRowIdx = (rowIdx - 1 + rowCount) % rowCount;
-      const dt = buffer.timestamps[rowIdx] - buffer.timestamps[prevRowIdx];
+      const dt = ts - buffer.timestampAtAbs(abs - 1);
       if (dt <= 0) continue;
       const alpha = 1 - Math.exp(-dt / this.tau);
       for (let b = 0; b < binCount; b++) {
-        this.data[b] = alpha * buffer.data[offset + b] + (1 - alpha) * this.data[b];
+        this.data[b] = alpha * row[b] + (1 - alpha) * this.data[b];
       }
     }
 
-    if (this.initialized) this.lastUpdateMs = buffer.timestamps[(writeRow - 1 + rowCount) % rowCount];
+    if (this.initialized) this.lastUpdateMs = buffer.timestampAtAbs(newest);
   }
 
   push(row: Int8Array, timestampMs: number) {

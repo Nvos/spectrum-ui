@@ -1,9 +1,12 @@
+import { useSetAtom } from "jotai";
 import { useEffect, useRef } from "react";
 import type { SpectrumCore } from "../core/SpectrumCore";
 import type { Band } from "../core/BandTypes";
 import type { ProfileRange } from "../core/ProfileTypes";
 import * as styles from "./styles.css";
+import { HistoryControls } from "./HistoryControls";
 import { SpectrumLayout } from "./SpectrumRows";
+import { followingAtom, historyPositionAtom } from "./store";
 
 type Props = {
   core: SpectrumCore;
@@ -25,8 +28,15 @@ export const Spectrum = ({ core, profileRanges, bands }: Props) => {
   const bandContainerRef = useRef<HTMLDivElement>(null);
   const bandTooltipRef = useRef<HTMLDivElement>(null);
   const gridContainerRef = useRef<HTMLDivElement>(null);
+  const setFollowing = useSetAtom(followingAtom);
+  const setHistoryPosition = useSetAtom(historyPositionAtom);
 
   useEffect(() => {
+    // Assigned before mount so the very first rendered frame publishes state.
+    core.onHistoryStateChange = (state) => {
+      setFollowing(state.following);
+      setHistoryPosition(state);
+    };
     core.mount({
       waterfall: waterfallRef.current!,
       live: liveRef.current!,
@@ -42,8 +52,11 @@ export const Spectrum = ({ core, profileRanges, bands }: Props) => {
       bandTooltip: bandTooltipRef.current!,
       gridContainer: gridContainerRef.current!,
     });
-    return () => core.destroy();
-  }, [core]);
+    return () => {
+      core.onHistoryStateChange = null;
+      core.destroy();
+    };
+  }, [core, setFollowing, setHistoryPosition]);
 
   useEffect(() => {
     core.setProfileRanges(profileRanges ?? []);
@@ -67,6 +80,7 @@ export const Spectrum = ({ core, profileRanges, bands }: Props) => {
         colormapLegendRef={colormapLegendRef}
         bandContainerRef={bandContainerRef}
         gridContainerRef={gridContainerRef}
+        waterfallOverlay={<HistoryControls core={core} />}
       />
       <div ref={tooltipRef} className={styles.tooltip} style={{ display: "none" }} />
       <div ref={bandTooltipRef} className={styles.tooltip} style={{ display: "none" }} />

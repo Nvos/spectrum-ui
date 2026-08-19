@@ -1,7 +1,9 @@
 import { resizeCanvasToDisplaySize } from "twgl.js";
 import { computePowerTicks } from "./powerAxisUtils";
 import { POWER_NO_READING } from "./constants";
+import { SCROLLED_OVERLAY_ALPHA } from "./overlayDimming";
 import type { RingBuffer } from "./RingBuffer";
+import type { TimeCursor } from "./TimeCursor";
 import type { Viewport } from "./Viewport";
 import type { NormalizedRange } from "./ProfileTypes";
 
@@ -20,8 +22,9 @@ const ANN_DASH = [4, 4];
 type AnnotationSource = {
   annBuf: RingBuffer;
   rowActivity: Uint8Array;
-  rowCount: number;
+  historyRows: number;
 };
+
 
 type LayerConfig = {
   data: Int8Array | Float32Array;
@@ -34,8 +37,10 @@ export class LiveRenderer {
   private canvas!: HTMLCanvasElement;
   private ctx!: CanvasRenderingContext2D;
   private viewport!: Viewport;
+  private timeCursor!: TimeCursor;
   private ringBuffer: RingBuffer;
   private binCount: number;
+  private displayRows = 1;
   private powerMin: number;
   private displayMax: number;
   private layers = new Map<string, LayerConfig>();
@@ -70,12 +75,17 @@ export class LiveRenderer {
     for (const [id, visible] of Object.entries(vis)) this.setLayerVisible(id, visible);
   }
 
-  mount(canvas: HTMLCanvasElement, viewport: Viewport) {
+  mount(canvas: HTMLCanvasElement, viewport: Viewport, timeCursor: TimeCursor) {
     this.canvas = canvas;
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("2D context not available");
     this.ctx = ctx;
     this.viewport = viewport;
+    this.timeCursor = timeCursor;
+  }
+
+  setDisplayRows(n: number) {
+    this.displayRows = Math.max(1, Math.round(n));
   }
 
   // oxlint-disable-next-line max-lines-per-function
@@ -88,6 +98,7 @@ export class LiveRenderer {
       binCount,
       powerMin,
       displayMax,
+      timeCursor,
     } = this;
 
     if (!canvas) {
@@ -153,10 +164,12 @@ export class LiveRenderer {
 
     // --- Spectrum fill + line ---
 
-    const row =
-      (ringBuffer.writeRow - 1 + ringBuffer.rowCount) % ringBuffer.rowCount;
-    const rowOffset = row * binCount;
-    const data = ringBuffer.data;
+    // Draw the row at the anchor, not the newest row, so the trace always
+    // matches the top of the visible waterfall.
+    const anchorRow = timeCursor.anchorRow;
+    const anchorAvailable = ringBuffer.hasAbs(anchorRow);
+    const data = anchorAvailable ? ringBuffer.rowViewAbs(anchorRow) : null;
+    const scrolled = !timeCursor.follow;
 
     const binStart = Math.floor(start * binCount);
     const binEnd = Math.ceil(end * binCount);
@@ -166,7 +179,7 @@ export class LiveRenderer {
     const sampleY = (b: number) => {
       const bin = Math.max(0, Math.min(binCount - 1, b));
       // Int8 value is dBm directly
-      const dbm = data[rowOffset + bin];
+      const dbm = data![bin];
       const t = Math.min(
         1,
         Math.max(0, (dbm - powerMin) / (displayMax - powerMin)),
@@ -175,6 +188,8 @@ export class LiveRenderer {
     };
 
     // --- Background fill layers (e.g. max hold) — drawn before live fill ---
+    // All-time accumulators recede while scrolled; see SCROLLED_OVERLAY_ALPHA.
+    if (scrolled) ctx.globalAlpha = SCROLLED_OVERLAY_ALPHA;
     for (const layer of this.layers.values()) {
       if (!layer.visible || layer.mode !== "fill") continue;
       const layerData = layer.data;
@@ -196,8 +211,9 @@ export class LiveRenderer {
       ctx.fillStyle = layer.color;
       ctx.fill();
     }
+    ctx.globalAlpha = 1;
 
-    if (this.liveVisible) {
+    if (this.liveVisible && anchorAvailable) {
       // Fill pass — closed polygon from bottom-left → spectrum → bottom-right
       ctx.beginPath();
       ctx.moveTo(sampleX(binStart), height);
@@ -221,6 +237,7 @@ export class LiveRenderer {
     }
 
     // --- Overlay line layers (e.g. avg) — drawn after live fill ---
+    if (scrolled) ctx.globalAlpha = SCROLLED_OVERLAY_ALPHA;
     for (const layer of this.layers.values()) {
       if (!layer.visible || layer.mode !== "line") continue;
       const layerData = layer.data;
@@ -243,27 +260,27 @@ export class LiveRenderer {
       }
       ctx.stroke();
     }
+    ctx.globalAlpha = 1;
 
     // --- Annotation vertical borders ---
     if (this.annotation && this.annotationVisible) {
-      const { annBuf, rowActivity, rowCount } = this.annotation;
-      const writeRow = annBuf.writeRow;
-      let activeRowIdx = -1;
-      for (let di = 0; di < rowCount; di++) {
-        const rowIdx = (writeRow - 1 - di + rowCount * 2) % rowCount;
-        if (rowActivity[rowIdx]) {
-          activeRowIdx = rowIdx;
+      const { annBuf, rowActivity, historyRows } = this.annotation;
+      // Newest annotated row at or below the anchor, within the visible window.
+      const scanFloor = Math.max(annBuf.oldestAbs(), anchorRow - this.displayRows + 1);
+      let activeAbs = -1;
+      for (let abs = anchorRow; abs >= scanFloor; abs--) {
+        if (rowActivity[abs % historyRows]) {
+          activeAbs = abs;
           break;
         }
       }
-      if (activeRowIdx !== -1) {
-        const annData = annBuf.data;
-        const annOffset = activeRowIdx * binCount;
+      if (activeAbs !== -1) {
+        const annData = annBuf.rowViewAbs(activeAbs);
         const groups: { startBin: number; endBin: number }[] = [];
         let gs = -1;
         for (let b = 0; b <= binCount; b++) {
           const active =
-            b < binCount && annData[annOffset + b] !== POWER_NO_READING;
+            b < binCount && annData[b] !== POWER_NO_READING;
           if (active && gs === -1) gs = b;
           else if (!active && gs !== -1) {
             groups.push({ startBin: gs, endBin: b });
@@ -320,8 +337,8 @@ export class LiveRenderer {
     }
   };
 
-  setAnnotation(annBuf: RingBuffer, rowActivity: Uint8Array, rowCount: number) {
-    this.annotation = { annBuf, rowActivity, rowCount };
+  setAnnotation(annBuf: RingBuffer, rowActivity: Uint8Array, historyRows: number) {
+    this.annotation = { annBuf, rowActivity, historyRows };
   }
 
   setAnnotationVisible(v: boolean) {

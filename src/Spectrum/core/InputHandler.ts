@@ -1,21 +1,44 @@
+import type { TimeCursor } from "./TimeCursor";
 import type { Viewport } from "./Viewport";
+
+/** Fraction of a screen moved per wheel notch when time-scrolling. */
+const WHEEL_SCROLL_FRACTION = 0.15;
 
 export class InputHandler {
   private canvas: HTMLCanvasElement;
   private viewport: Viewport;
   private readonly onUpdate: () => void;
-  private panStart: { x: number; viewStart: number; viewEnd: number } | null = null;
+  private readonly timeCursor: TimeCursor | null;
+  private panStart: { x: number; viewStart: number; viewEnd: number } | null =
+    null;
 
-  constructor(canvas: HTMLCanvasElement, viewport: Viewport, onUpdate: () => void) {
+  /**
+   * @param timeCursor when supplied, this surface also handles history
+   *        scrolling: `shift`+wheel, `PageUp`/`PageDown`, `Home`/`End`.
+   */
+  constructor(
+    canvas: HTMLCanvasElement,
+    viewport: Viewport,
+    onUpdate: () => void,
+    timeCursor?: TimeCursor,
+  ) {
     this.canvas = canvas;
     this.viewport = viewport;
     this.onUpdate = onUpdate;
+    this.timeCursor = timeCursor ?? null;
 
     canvas.addEventListener("wheel", this.onWheel, { passive: false });
     canvas.addEventListener("mousedown", this.onMouseDown);
     window.addEventListener("mousemove", this.onMouseMove);
     window.addEventListener("mouseup", this.onMouseUp);
     canvas.addEventListener("dblclick", this.onDblClick);
+
+    if (this.timeCursor) {
+      // Keyboard reachability for the scroll gesture. Canvases are not
+      // focusable by default.
+      if (!canvas.hasAttribute("tabindex")) canvas.tabIndex = 0;
+      canvas.addEventListener("keydown", this.onKeyDown);
+    }
   }
 
   private toNorm(clientX: number): number {
@@ -24,11 +47,35 @@ export class InputHandler {
   }
 
   private canvasNormToViewNorm(canvasNorm: number): number {
-    return this.viewport.start + canvasNorm * (this.viewport.end - this.viewport.start);
+    return (
+      this.viewport.start +
+      canvasNorm * (this.viewport.end - this.viewport.start)
+    );
   }
 
   private onWheel = (e: WheelEvent) => {
     e.preventDefault();
+
+    // shift+wheel scrolls time. Plain wheel stays frequency zoom — that is the
+    // primary interaction and must not regress. shift is preferred over ctrl
+    // (browser page zoom, macOS trackpad pinch synthesises ctrl+wheel) and over
+    // alt (claimed by some Linux window managers). preventDefault above already
+    // suppresses shift+wheel's default horizontal scroll.
+    if (this.timeCursor && e.shiftKey) {
+      const step = Math.max(
+        1,
+        Math.round(this.timeCursor.displayRows * WHEEL_SCROLL_FRACTION),
+      );
+      // Wheel down reveals older rows, which live below the anchor.
+      this.timeCursor.scrollByRows(e.deltaY > 0 ? -step : step);
+      // A wheel gesture does not focus anything, so Home/PageUp would be dead
+      // right after the gesture that put the user into history. Take focus on
+      // the time-scroll path only, leaving plain frequency zoom alone.
+      this.canvas.focus({ preventScroll: true });
+      this.onUpdate();
+      return;
+    }
+
     // if dragging, update panStart to current state so delta stays coherent
     if (this.panStart) {
       this.panStart = {
@@ -42,6 +89,36 @@ export class InputHandler {
     this.onUpdate();
   };
 
+  private onKeyDown = (e: KeyboardEvent) => {
+    const tc = this.timeCursor;
+    if (!tc || e.ctrlKey || e.metaKey || e.altKey) return;
+    const page = Math.max(1, tc.displayRows - 1);
+    switch (e.key) {
+      case "ArrowUp":
+        tc.scrollByRows(1);
+        break;
+      case "ArrowDown":
+        tc.scrollByRows(-1);
+        break;
+      case "PageUp":
+        tc.scrollByRows(-page);
+        break;
+      case "PageDown":
+        tc.scrollByRows(page);
+        break;
+      case "Home":
+        tc.scrollToLive();
+        break;
+      case "End":
+        tc.scrollToOldest();
+        break;
+      default:
+        return;
+    }
+    e.preventDefault();
+    this.onUpdate();
+  };
+
   private onMouseDown = (e: MouseEvent) => {
     this.panStart = {
       x: e.clientX,
@@ -50,12 +127,18 @@ export class InputHandler {
     };
   };
 
+  // Deliberately reads clientX only. Vertical drag is NOT bound to time scroll:
+  // an imprecise horizontal pan would drift vertically and silently drop the
+  // view out of follow mode, which reads as "the display froze".
   private onMouseMove = (e: MouseEvent) => {
     if (!this.panStart) return;
     const rect = this.canvas.getBoundingClientRect();
     const span = this.panStart.viewEnd - this.panStart.viewStart;
     const deltaNorm = -((e.clientX - this.panStart.x) / rect.width) * span;
-    this.viewport.panTo(this.panStart.viewStart + deltaNorm, this.panStart.viewEnd + deltaNorm);
+    this.viewport.panTo(
+      this.panStart.viewStart + deltaNorm,
+      this.panStart.viewEnd + deltaNorm,
+    );
     this.onUpdate();
   };
 
@@ -74,5 +157,6 @@ export class InputHandler {
     window.removeEventListener("mousemove", this.onMouseMove);
     window.removeEventListener("mouseup", this.onMouseUp);
     this.canvas.removeEventListener("dblclick", this.onDblClick);
+    this.canvas.removeEventListener("keydown", this.onKeyDown);
   }
 }

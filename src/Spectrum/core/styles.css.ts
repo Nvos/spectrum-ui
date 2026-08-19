@@ -1,11 +1,19 @@
-import { style } from "@vanilla-extract/css";
+import { createVar, fallbackVar, style } from "@vanilla-extract/css";
 import { background, text, font } from "../tokens";
+
+/**
+ * Width of the left gutter (power axis / time labels). The main view widens it
+ * to fit an absolute HH:MM:SS timestamp; subviews keep the compact default.
+ * Every gutter in a layout must use the same value or the panes stop aligning.
+ */
+export const gutterWidthVar = createVar();
+export const GUTTER_WIDTH_DEFAULT = "2rem";
 
 // --- Power axis ---
 
 export const powerAxisContainer = style({
   position: "relative",
-  width: "2rem",
+  width: fallbackVar(gutterWidthVar, GUTTER_WIDTH_DEFAULT),
   flexShrink: 0,
   userSelect: "none",
   pointerEvents: "none",

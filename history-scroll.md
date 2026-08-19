@@ -1,6 +1,7 @@
 # History scrolling — Phase 1 execution brief
 
-**Status:** not started. This document is written to be executed from a cold context —
+**Status:** phase 1 complete (items 1-9). Verified in the browser; `npx tsc -b` and
+`npm run build` clean. This document is written to be executed from a cold context —
 no prior conversation required. Read it fully before editing anything.
 
 ## Objective

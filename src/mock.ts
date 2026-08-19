@@ -40,10 +40,15 @@ export const generateLiveFrame = (binCount: number): string => {
   return toBase64(buffer);
 }
 
-export const generateHydrationPayload = (): HydrationPayload => {
+/**
+ * @param binCount must match the bin count the spectrum is configured with.
+ *        Hydration rows are copied into the ring by byte offset, so a narrower
+ *        payload smears across row boundaries instead of filling them.
+ */
+export const generateHydrationPayload = (binCount: number = MOCK_BIN_COUNT): HydrationPayload => {
   const now = Date.now();
   const n = MOCK_HYDRATION_ROWS;
-  const bins = MOCK_BIN_COUNT;
+  const bins = binCount;
 
   const timestamps = new Float64Array(n);
   const spectrumRows = new Int8Array(n * bins);
