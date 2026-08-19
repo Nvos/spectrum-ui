@@ -21,6 +21,7 @@ import {
   streamLiveFrames,
 } from "./api";
 import type { CaptureMetadata } from "./api";
+import { HistoryPager } from "./historyPaging";
 import {
   avgTauAtom,
   bandsAtom,
@@ -640,6 +641,7 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
       initialData?.spectrum,
       initialData?.annotations,
     );
+    if (config.capture) fb.configurePaging(config.capture.pageRows, config.capture.seqStart);
     const c = new SpectrumCore(fb, {
       ...params,
       initialData,
@@ -663,6 +665,14 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
 
   useBackendStream(frameBuffer, config?.capture);
   useSpectrumCoreBridge(store, core);
+
+  useEffect(() => {
+    if (!frameBuffer || !config?.capture) return;
+    const pager = new HistoryPager(frameBuffer, config.capture, (error) => {
+      setBackendStatus(error instanceof Error ? error.message : "Could not load history");
+    });
+    return () => pager.dispose();
+  }, [frameBuffer, config?.capture]);
 
   useEffect(() => {
     if (!core || !config) return;
@@ -889,7 +899,7 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
             { key: "freqStart" as const, label: "freqStart (kHz)" },
             { key: "resolution" as const, label: "resolution (kHz/bin)" },
             { key: "binCount" as const, label: "binCount" },
-            { key: "historyRows" as const, label: "historyRows (N)" },
+            { key: "historyRows" as const, label: "client cache rows (N)" },
           ] as const
         ).map(({ key, label }) => (
           <label

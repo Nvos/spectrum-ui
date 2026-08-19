@@ -4,6 +4,12 @@ This is a dependency-free Go prototype of the capture API. It owns signal
 generation, timestamps, retention, history page alignment, session changes, and
 the live sequence. The browser no longer synthesizes frames.
 
+The active capture uses session retention: every generated row remains available
+until capture parameters are applied again or the backend process exits. This is
+intentionally simple for prototyping and means backend memory grows with capture
+duration; production storage should replace the in-memory slice without changing
+the API.
+
 ## Run
 
 ```sh
@@ -28,8 +34,9 @@ sparse annotation rows
 Each sparse annotation row is `uint16 intervalCount`, followed by intervals of
 `uint16 startBin`, `uint16 endBin`, and `int8 value`. Batch responses concatenate
 complete page containers. Completed pages are immutable and cacheable. Requests
-for expired pages return 410; pages in the live tail return 404; stale session IDs
-return 409.
+for pages in the incomplete live tail return 404 and stale session IDs return 409.
+The 410 response remains part of the contract for a future bounded production
+retention policy, but session-retained mock pages do not expire.
 
 ## Live stream
 

@@ -269,7 +269,17 @@ export class LiveRenderer {
       const scanFloor = Math.max(annBuf.oldestAbs(), anchorRow - this.displayRows + 1);
       let activeAbs = -1;
       for (let abs = anchorRow; abs >= scanFloor; abs--) {
-        if (rowActivity[abs % historyRows]) {
+        let active = Boolean(rowActivity[abs % historyRows]) && annBuf.isResidentAbs(abs);
+        if (!active && !annBuf.isResidentAbs(abs) && annBuf.hasAbs(abs)) {
+          const row = annBuf.rowViewAbs(abs);
+          for (let bin = 0; bin < row.length; bin++) {
+            if (row[bin] !== POWER_NO_READING) {
+              active = true;
+              break;
+            }
+          }
+        }
+        if (active) {
           activeAbs = abs;
           break;
         }

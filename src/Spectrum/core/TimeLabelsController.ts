@@ -124,6 +124,10 @@ export class TimeLabelsController {
     }
 
     const bottom = Math.max(oldest, anchor - D + 1);
+    if (!buffer.hasAbs(bottom)) {
+      this.hideFrom(0);
+      return;
+    }
     const rows = anchor - bottom;
     const height = container.clientHeight || 1;
     const spanSec = (buffer.timestampAtAbs(anchor) - buffer.timestampAtAbs(bottom)) / 1000;

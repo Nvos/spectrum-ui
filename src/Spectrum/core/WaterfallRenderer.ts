@@ -85,6 +85,10 @@ void main() {
     // texelFetch reproduces NEAREST sampling exactly - no filtering, no
     // half-texel offsets - so the row/pixel mapping is exact by construction.
     float s = texelFetch(uWaterfallTexture, ivec2(binX, absRow % uHistoryRows), 0).r;
+    if (s <= -0.999) {
+        outPixelColor = vec4(uBlankColor, 1.0);
+        return;
+    }
     float dBm = s * 127.0;
     float normalizedPower = clamp(
         (dBm - uPowerMin) / (uDisplayMax - uPowerMin),
@@ -123,6 +127,9 @@ export class WaterfallRenderer {
   private currentLUT: Uint8Array;
   private highlightStart = 0;
   private highlightEnd = 0;
+  private readonly textureSeq: Float64Array;
+  private readonly textureAvailable: Uint8Array;
+  private readonly blankTextureRow: Int8Array;
 
   constructor(
     historyRows: number,
@@ -138,6 +145,9 @@ export class WaterfallRenderer {
     this.powerMin = settings.displayMin;
     this.displayMax = settings.displayMax;
     this.currentLUT = buildLUT(COLORMAPS[settings.colormap]);
+    this.textureSeq = new Float64Array(historyRows).fill(Number.NaN);
+    this.textureAvailable = new Uint8Array(historyRows);
+    this.blankTextureRow = new Int8Array(this.texBins).fill(POWER_NO_READING);
   }
 
   destroy() {}
@@ -228,6 +238,7 @@ export class WaterfallRenderer {
 
     resizeCanvasToDisplaySize(canvas, window.devicePixelRatio || 1);
     this.ctx.viewport(0, 0, this.ctx.canvas.width, this.ctx.canvas.height);
+    this.syncVisibleRows();
 
     this.ctx.useProgram(this.programInfo.program);
     setBuffersAndAttributes(this.ctx, this.programInfo, this.bufferInfo);
@@ -270,15 +281,40 @@ export class WaterfallRenderer {
 
   /** Upload one row at its ring slot. `absRow` is in `totalWritten` space. */
   push(absRow: number, row: Int8Array) {
+    this.uploadRow(absRow, row, true);
+  }
+
+  /**
+   * The GPU remains a fixed-size modulo ring even when backend history is
+   * unbounded. Before drawing, make every visible slot describe the requested
+   * absolute row. Scrolling uploads a window once; steady-state live rendering
+   * updates only the newly written/colliding slot.
+   */
+  private syncVisibleRows() {
+    const anchor = this.timeCursor.anchorRow;
+    const bottom = Math.max(this.ringBuffer.oldestAbs(), anchor - this.displayRows + 1);
+    for (let abs = bottom; abs <= anchor; abs++) {
+      const slot = abs % this.historyRows;
+      const available = this.ringBuffer.hasAbs(abs);
+      if (this.textureSeq[slot] === abs && Boolean(this.textureAvailable[slot]) === available) {
+        continue;
+      }
+      this.uploadRow(abs, available ? this.ringBuffer.rowViewAbs(abs) : this.blankTextureRow, available);
+    }
+  }
+
+  private uploadRow(absRow: number, row: Int8Array, available: boolean) {
     const gl = this.ctx;
     if (!gl) return;
     const slot = absRow % this.historyRows;
     const src =
-      this.texBins === this.binCount
+      row.length === this.texBins
         ? row
         : row.subarray(this.texBinStart, this.texBinStart + this.texBins);
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, slot, this.texBins, 1, gl.RED, gl.BYTE, src);
+    this.textureSeq[slot] = absRow;
+    this.textureAvailable[slot] = available ? 1 : 0;
   }
 
   updateColormap(lut: Uint8Array) {

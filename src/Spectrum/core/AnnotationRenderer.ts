@@ -51,6 +51,8 @@ export class AnnotationRenderer {
   private visible: boolean;
   private cachedBlocks: Block[] = [];
   private cachedTotal = 0;
+  private historicalBlocks: Block[] = [];
+  private historicalKey = "";
   private profileRanges: { start: number; end: number }[] = [];
   private visibleRects: VisibleRect[] = [];
 
@@ -61,7 +63,7 @@ export class AnnotationRenderer {
     this.rowActivity = new Uint8Array(historyRows);
     this.visible = visible;
 
-    for (let abs = annBuf.oldestAbs(); abs < annBuf.totalWritten; abs++) {
+    for (let abs = annBuf.residentOldestAbs(); abs < annBuf.totalWritten; abs++) {
       const row = annBuf.rowViewAbs(abs);
       for (let b = 0; b < binCount; b++) {
         if (row[b] !== POWER_NO_READING) {
@@ -103,6 +105,7 @@ export class AnnotationRenderer {
 
   private collectGroups(absRow: number): Group[] {
     const { binCount } = this;
+    if (!this.annBuf.hasAbs(absRow)) return [];
     const data = this.annBuf.rowViewAbs(absRow);
     const groups: Group[] = [];
     let gs = -1;
@@ -139,14 +142,20 @@ export class AnnotationRenderer {
    * visible, so blocks must exist for all of it — not just one screen.
    */
   private computeBlocksFull(): Block[] {
-    const T = this.annBuf.totalWritten;
-    const oldest = this.annBuf.oldestAbs();
+    return this.computeBlocksRange(
+      this.annBuf.totalWritten - 1,
+      this.annBuf.residentOldestAbs(),
+      true,
+    );
+  }
+
+  private computeBlocksRange(newest: number, oldest: number, useActivity: boolean): Block[] {
     type OpenBlock = { startBin: number; endBin: number; topAbs: number; curAbs: number };
     const blocks: Block[] = [];
     let open: OpenBlock[] = [];
 
-    for (let abs = T - 1; abs >= oldest; abs--) {
-      const groups = this.activityAt(abs) ? this.collectGroups(abs) : [];
+    for (let abs = newest; abs >= oldest; abs--) {
+      const groups = (!useActivity || this.activityAt(abs)) ? this.collectGroups(abs) : [];
 
       const nextOpen: OpenBlock[] = [];
       for (const ob of open) {
@@ -195,7 +204,7 @@ export class AnnotationRenderer {
   private computeBlocksIncremental(targetTotal: number): Block[] {
     const newAbs = targetTotal - 1;
     const prevAbs = newAbs - 1;
-    const oldest = Math.max(0, targetTotal - this.historyRows);
+    const oldest = this.annBuf.residentOldestAbs(targetTotal);
     const newGroups = this.activityAt(newAbs) ? this.collectGroups(newAbs) : [];
     const matchedGroupIdx = new Set<number>();
     const blocks: Block[] = [];
@@ -278,11 +287,26 @@ export class AnnotationRenderer {
 
     if (!this.visible) return;
 
-    this.syncBlocks();
-
     const D = this.displayRows;
     const anchor = this.timeCursor.anchorRow;
     const bottomAbs = anchor - D + 1;
+    const historical = bottomAbs < this.annBuf.residentOldestAbs();
+    let blocks: Block[];
+    if (historical) {
+      const key = `${anchor}:${D}:${this.annBuf.historyVersion}`;
+      if (key !== this.historicalKey) {
+        this.historicalBlocks = this.computeBlocksRange(
+          anchor,
+          Math.max(this.annBuf.oldestAbs(), bottomAbs),
+          false,
+        );
+        this.historicalKey = key;
+      }
+      blocks = this.historicalBlocks;
+    } else {
+      this.syncBlocks();
+      blocks = this.cachedBlocks;
+    }
 
     const binToX = (bin: number) => ((bin / binCount - start) / (end - start)) * width;
 
@@ -290,7 +314,7 @@ export class AnnotationRenderer {
     // four times. Cull once, then run the passes over the survivors.
     const rects = this.visibleRects;
     rects.length = 0;
-    for (const block of this.cachedBlocks) {
+    for (const block of blocks) {
       if (block.topAbs < bottomAbs || block.botAbs > anchor) continue;
       const ageTop = Math.max(0, anchor - block.topAbs);
       const ageBot = anchor - block.botAbs;

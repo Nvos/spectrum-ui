@@ -6,6 +6,20 @@ export type InitialRows = {
   seqStart?: number;
 };
 
+export type CachedPage = {
+  seqStart: number;
+  count: number;
+  rows: Int8Array;
+  timestamps: number[];
+};
+
+type PageEntry = {
+  seqStart: number;
+  count: number;
+  rows: Int8Array;
+  timestamps: Float64Array;
+};
+
 /**
  * Fixed-depth ring of rows, addressed by **absolute row index** — a monotonic
  * counter in `totalWritten` space that never wraps.
@@ -23,6 +37,12 @@ export class RingBuffer {
   totalWritten: number = 0;
   private validStart: number = 0;
   private readonly emptyFill: number;
+  private readonly blankRow: Int8Array;
+  private pageRows = 0;
+  private historyStart: number | null = null;
+  private maxCachedPages = 0;
+  private pages = new Map<number, PageEntry>();
+  historyVersion = 0;
 
   constructor(rowCount: number, binCount: number, initial?: InitialRows, emptyFill = 0) {
     this.rowCount = rowCount;
@@ -30,6 +50,7 @@ export class RingBuffer {
     this.data = new Int8Array(rowCount * binCount).fill(emptyFill);
     this.timestamps = new Float64Array(rowCount);
     this.emptyFill = emptyFill;
+    this.blankRow = new Int8Array(binCount).fill(emptyFill);
 
     if (initial) {
       const count = Math.min(initial.count, rowCount);
@@ -66,7 +87,17 @@ export class RingBuffer {
 
   /** Absolute index of the oldest row still retained. Rises with every push once the ring is full. */
   oldestAbs(): number {
+    if (this.historyStart !== null) return this.historyStart;
     return Math.max(this.validStart, this.totalWritten - this.rowCount);
+  }
+
+  /** Oldest row present in the live rolling ring, excluding fetched pages. */
+  residentOldestAbs(totalWritten = this.totalWritten): number {
+    return Math.max(this.validStart, totalWritten - this.rowCount);
+  }
+
+  isResidentAbs(absRow: number): boolean {
+    return absRow >= this.residentOldestAbs() && absRow < this.totalWritten;
   }
 
   /**
@@ -75,7 +106,8 @@ export class RingBuffer {
    * keep call sites on this, never an inline comparison.
    */
   hasAbs(absRow: number): boolean {
-    return absRow >= this.oldestAbs() && absRow < this.totalWritten;
+    if (absRow < this.oldestAbs() || absRow >= this.totalWritten) return false;
+    return this.isResidentAbs(absRow) || this.pageAt(absRow) !== undefined;
   }
 
   /** Ring slot backing an absolute row. Only storage-aware code should need this. */
@@ -84,17 +116,70 @@ export class RingBuffer {
   }
 
   rowViewAbs(absRow: number): Int8Array {
+    if (!this.isResidentAbs(absRow)) {
+      const page = this.pageAt(absRow);
+      if (!page) return this.blankRow;
+      const row = absRow - page.seqStart;
+      return page.rows.subarray(row * this.binCount, (row + 1) * this.binCount);
+    }
     const start = (absRow % this.rowCount) * this.binCount;
     return this.data.subarray(start, start + this.binCount);
   }
 
   /** Single-bin read, avoiding a subarray allocation on hover paths. */
   sampleAbs(absRow: number, bin: number): number {
-    return this.data[(absRow % this.rowCount) * this.binCount + bin];
+    return this.rowViewAbs(absRow)[bin];
   }
 
   timestampAtAbs(absRow: number): number {
+    if (!this.isResidentAbs(absRow)) {
+      const page = this.pageAt(absRow);
+      return page?.timestamps[absRow - page.seqStart] ?? 0;
+    }
     return this.timestamps[absRow % this.rowCount];
+  }
+
+  configurePaging(pageRows: number, historyStart: number) {
+    this.pageRows = pageRows;
+    this.historyStart = historyStart;
+    this.maxCachedPages = Math.max(16, Math.ceil(this.rowCount / pageRows));
+    this.pages.clear();
+    this.historyVersion++;
+  }
+
+  hasPage(pageIndex: number): boolean {
+    if (this.pageRows <= 0) return false;
+    const start = pageIndex * this.pageRows;
+    const end = start + this.pageRows;
+    if (start >= this.residentOldestAbs() && end <= this.totalWritten) return true;
+    return this.pages.has(pageIndex);
+  }
+
+  hasCachedPage(pageIndex: number): boolean {
+    return this.pages.has(pageIndex);
+  }
+
+  loadPage(page: CachedPage) {
+    if (this.pageRows <= 0 || page.count !== this.pageRows) {
+      throw new Error("History page shape does not match the configured page size");
+    }
+    const pageIndex = Math.floor(page.seqStart / this.pageRows);
+    if (page.seqStart !== pageIndex * this.pageRows) {
+      throw new Error("History page is not sequence-aligned");
+    }
+    this.pages.delete(pageIndex);
+    this.pages.set(pageIndex, {
+      seqStart: page.seqStart,
+      count: page.count,
+      rows: page.rows,
+      timestamps: Float64Array.from(page.timestamps),
+    });
+    while (this.pages.size > this.maxCachedPages) {
+      const oldestKey = this.pages.keys().next().value as number | undefined;
+      if (oldestKey === undefined) break;
+      this.pages.delete(oldestKey);
+    }
+    this.historyVersion++;
   }
 
   private fillGap(from: number, to: number) {
@@ -104,5 +189,10 @@ export class RingBuffer {
       this.data.fill(this.emptyFill, slot * this.binCount, (slot + 1) * this.binCount);
       this.timestamps[slot] = 0;
     }
+  }
+
+  private pageAt(absRow: number): PageEntry | undefined {
+    if (this.pageRows <= 0) return undefined;
+    return this.pages.get(Math.floor(absRow / this.pageRows));
   }
 }

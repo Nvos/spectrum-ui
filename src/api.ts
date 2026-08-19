@@ -1,7 +1,7 @@
 import { POWER_NO_READING } from "./Spectrum/core/constants";
 import type { SpectrumInitialData } from "./Spectrum";
 
-const API_BASE = (import.meta.env.VITE_SPECTRUM_API_URL as string | undefined)?.replace(/\/$/, "") ?? "";
+const API_BASE = import.meta.env?.VITE_SPECTRUM_API_URL?.replace(/\/$/, "") ?? "";
 const INITIAL_PAGE_COUNT = 2;
 const OCCUPANCY_THRESHOLD_DBM = -85;
 
@@ -21,7 +21,7 @@ export type CaptureMetadata = {
   seqStart: number;
   seqEnd: number;
   startedAt: number;
-  retention: { rows: number; policy: "ring" };
+  retention: { rows: number; policy: "ring" | "session" };
   liveFormat: "spectrum-live-binary-v1";
 };
 

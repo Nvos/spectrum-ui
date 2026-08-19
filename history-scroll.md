@@ -1,7 +1,10 @@
 # History scrolling — Phase 1 execution brief
 
-**Status:** phase 1 complete (items 1-9). Verified in the browser; `npx tsc -b` and
-`npm run build` clean. This document is written to be executed from a cold context —
+**Status:** phase 1 complete (items 1-9); backend paging is now implemented as described
+in [history-paging-api.md](history-paging-api.md). The fixed live ring remains the GPU
+working set while settled historical windows are fetched into a bounded page cache.
+`npm run build` and the Go backend tests are clean. This document was written as the
+phase-1 execution brief from a cold context —
 no prior conversation required. Read it fully before editing anything.
 
 ## Objective
@@ -157,6 +160,9 @@ Anchor in absolute space is what makes a paused view stay put as new rows arrive
 exist yet.
 
 #### What happens at the oldest end — the treadmill
+
+> Phase-1 behavior only. Backend paging now supplies a stable session start, so
+> the treadmill does not occur while the active backend session is retained.
 
 `oldestAbs = max(0, T - N)` tracks `T`, so the **lower clamp bound rises by one for every
 row that arrives**. A parked `anchorRow` is a fixed number, so once the floor reaches it,

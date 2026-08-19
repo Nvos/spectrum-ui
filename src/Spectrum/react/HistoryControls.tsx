@@ -27,7 +27,7 @@ export const HistoryControls = ({ core }: Props) => {
 
   if (!position || position.totalWritten === 0) return null;
 
-  const { following, atOldest, timestampMs, scrollTop, scrollSize, totalWritten, oldestAbs } =
+  const { following, atOldest, timestampMs, loading, scrollTop, scrollSize, totalWritten, oldestAbs } =
     position;
   const retained = Math.max(1, totalWritten - oldestAbs);
 
@@ -38,8 +38,10 @@ export const HistoryControls = ({ core }: Props) => {
     const rect = track.getBoundingClientRect();
     if (rect.height <= 0) return;
     const thumbHeight = scrollSize * rect.height;
-    const frac = (clientY - rect.top - thumbHeight / 2) / rect.height;
-    const distanceFromLive = Math.round(Math.min(1, Math.max(0, frac)) * retained);
+    const travel = Math.max(1, rect.height - thumbHeight);
+    const frac = (clientY - rect.top - thumbHeight / 2) / travel;
+    const maxDistance = Math.max(0, retained - position.displayRows);
+    const distanceFromLive = Math.round(Math.min(1, Math.max(0, frac)) * maxDistance);
     if (distanceFromLive <= 0) core.scrollHistoryToLive();
     else core.scrollHistoryTo(totalWritten - 1 - distanceFromLive);
   };
@@ -48,6 +50,7 @@ export const HistoryControls = ({ core }: Props) => {
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
     dragging.current = true;
+    core.beginHistoryGesture();
     seekToClientY(e.clientY);
   };
 
@@ -58,6 +61,7 @@ export const HistoryControls = ({ core }: Props) => {
 
   const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
     dragging.current = false;
+    core.endHistoryGesture();
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId);
     }
@@ -93,7 +97,9 @@ export const HistoryControls = ({ core }: Props) => {
 
   const label = following
     ? "● LIVE"
-    : atOldest
+    : loading
+      ? "⏸ LOADING…"
+      : atOldest
       ? `⏸ OLDEST · ${formatClock(timestampMs)}`
       : `⏸ ${formatClock(timestampMs)}`;
 
@@ -118,7 +124,7 @@ export const HistoryControls = ({ core }: Props) => {
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={Math.round(scrollTop * 100)}
-        aria-valuetext={following ? "Live" : formatClock(timestampMs)}
+        aria-valuetext={following ? "Live" : loading ? "Loading history" : formatClock(timestampMs)}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}

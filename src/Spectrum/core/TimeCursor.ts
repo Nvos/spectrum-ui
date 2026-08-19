@@ -8,14 +8,9 @@
  * That is what keeps a paused view frozen as new rows arrive: an offset-from-
  * newest anchor would slide backwards on every push.
  *
- * ## The treadmill
- *
- * `oldestAbs = max(0, T - N)` tracks `T`, so the lower clamp bound rises by one
- * for every row that arrives. A parked anchor is a fixed number, so once the
- * floor reaches it the view drifts forward at exactly the ingest rate — showing
- * the oldest retained data sliding away. Every parked position therefore has a
- * finite freeze budget of `anchorRow - (oldestAbs + D - 1)` rows. Inherent to a
- * ring buffer; {@link atOldest} exists so the UI can say so out loud.
+ * With local-only storage the oldest bound advances as the rolling ring wraps.
+ * With backend paging it is the capture's stable `seqStart`, so a parked
+ * historical window remains frozen for the lifetime of the session.
  */
 export class TimeCursor {
   /** Stick to the newest row. Cleared by any scroll, restored by `scrollToLive()`. */
@@ -27,7 +22,7 @@ export class TimeCursor {
   /** `D` — displayed rows, i.e. waterfall canvas height in CSS pixels. */
   displayRows = 1;
 
-  /** True while the anchor is pinned against the oldest retained row and drifting. */
+  /** True while the anchor is pinned against the oldest available window. */
   atOldest = false;
 
   scrollByRows(n: number) {
@@ -69,12 +64,7 @@ export class TimeCursor {
       const floor = Math.min(newest, oldestAbs + this.displayRows - 1);
       if (this.anchorRow <= floor) {
         this.anchorRow = floor;
-        // The treadmill, and *only* the treadmill: pinned against the floor
-        // while the ring is actually discarding rows, so the anchor advances on
-        // its own and the paused timestamp keeps changing. Before the ring has
-        // wrapped (`oldestAbs === 0`) the floor is static, so parking there is
-        // an ordinary frozen pause and must not claim otherwise.
-        this.atOldest = oldestAbs > 0 && floor < newest;
+        this.atOldest = floor < newest;
       } else {
         this.atOldest = false;
       }
@@ -93,7 +83,7 @@ export class TimeCursor {
     }
   }
 
-  /** Rows of slack before the treadmill starts dragging the anchor forward. */
+  /** Rows between the current window and the oldest available window. */
   freezeBudget(oldestAbs: number): number {
     return Math.max(0, this.anchorRow - (oldestAbs + this.displayRows - 1));
   }

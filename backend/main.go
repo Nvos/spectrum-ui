@@ -17,16 +17,15 @@ import (
 )
 
 const (
-	defaultAddress       = "127.0.0.1:8787"
-	defaultFrequency     = 25_000
-	defaultResolution    = 1_500
-	defaultBinCount      = 4_000
-	defaultRetentionRows = 16_384
-	initialRows          = 1_024
-	tickInterval         = 60 * time.Millisecond
-	occupancyThreshold   = -85
-	powerNoReading       = -128
-	maxBatchPages        = 8
+	defaultAddress     = "127.0.0.1:8787"
+	defaultFrequency   = 25_000
+	defaultResolution  = 1_500
+	defaultBinCount    = 4_000
+	initialRows        = 1_024
+	tickInterval       = 60 * time.Millisecond
+	occupancyThreshold = -85
+	powerNoReading     = -128
+	maxBatchPages      = 8
 )
 
 type captureConfig struct {
@@ -76,18 +75,17 @@ type signal struct {
 }
 
 type capture struct {
-	mu            sync.RWMutex
-	id            string
-	config        captureConfig
-	pageRows      int
-	retentionRows int
-	startedAt     int64
-	seqStart      uint64
-	seqEnd        uint64
-	rows          []row
-	subscribers   map[chan row]struct{}
-	signals       []signal
-	cancel        context.CancelFunc
+	mu          sync.RWMutex
+	id          string
+	config      captureConfig
+	pageRows    int
+	startedAt   int64
+	seqStart    uint64
+	seqEnd      uint64
+	rows        []row
+	subscribers map[chan row]struct{}
+	signals     []signal
+	cancel      context.CancelFunc
 }
 
 type server struct {
@@ -318,15 +316,14 @@ func newCapture(cfg captureConfig) *capture {
 	pageRows := pageRowsFor(cfg.BinCount)
 	now := time.Now()
 	c := &capture{
-		id:            fmt.Sprintf("cap_%x", now.UnixNano()),
-		config:        cfg,
-		pageRows:      pageRows,
-		retentionRows: max(defaultRetentionRows, cfg.HistoryRows*2),
-		startedAt:     now.UnixMilli() - int64(initialRows-1)*tickInterval.Milliseconds(),
-		rows:          make([]row, max(defaultRetentionRows, cfg.HistoryRows*2)),
-		subscribers:   make(map[chan row]struct{}),
-		signals:       defaultSignals(),
-		cancel:        func() {},
+		id:          fmt.Sprintf("cap_%x", now.UnixNano()),
+		config:      cfg,
+		pageRows:    pageRows,
+		startedAt:   now.UnixMilli() - int64(initialRows-1)*tickInterval.Milliseconds(),
+		rows:        make([]row, 0, initialRows),
+		subscribers: make(map[chan row]struct{}),
+		signals:     defaultSignals(),
+		cancel:      func() {},
 	}
 	for i := 0; i < initialRows; i++ {
 		timestamp := now.Add(-time.Duration(initialRows-1-i) * tickInterval)
@@ -367,12 +364,8 @@ func (c *capture) appendGenerated(timestamp time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	item := c.generateRow(timestamp)
-	slot := item.Seq % uint64(c.retentionRows)
-	c.rows[slot] = item
+	c.rows = append(c.rows, item)
 	c.seqEnd++
-	if c.seqEnd-c.seqStart > uint64(c.retentionRows) {
-		c.seqStart = c.seqEnd - uint64(c.retentionRows)
-	}
 	for subscriber := range c.subscribers {
 		select {
 		case subscriber <- item:
@@ -441,7 +434,7 @@ func (c *capture) metadata() metadata {
 	return metadata{
 		SessionID: c.id, FreqStart: c.config.FreqStart, Resolution: c.config.Resolution,
 		BinCount: c.config.BinCount, PageRows: c.pageRows, SeqStart: c.seqStart, SeqEnd: c.seqEnd,
-		StartedAt: c.startedAt, Retention: retention{Rows: c.retentionRows, Policy: "ring"},
+		StartedAt: c.startedAt, Retention: retention{Rows: len(c.rows), Policy: "session"},
 		LiveFormat: "spectrum-live-binary-v1",
 	}
 }
@@ -463,7 +456,7 @@ func (c *capture) pages(from uint64, count int) ([][]row, int) {
 		pages[p] = make([]row, c.pageRows)
 		for i := 0; i < c.pageRows; i++ {
 			seq := start + uint64(p*c.pageRows+i)
-			pages[p][i] = c.rows[seq%uint64(c.retentionRows)]
+			pages[p][i] = c.rows[seq]
 		}
 	}
 	return pages, http.StatusOK
@@ -478,7 +471,7 @@ func (c *capture) seek(timestamp int64) (uint64, bool) {
 	lo, hi := c.seqStart, c.seqEnd
 	for lo < hi {
 		mid := lo + (hi-lo)/2
-		if int64(c.rows[mid%uint64(c.retentionRows)].TimestampMS) < timestamp {
+		if int64(c.rows[mid].TimestampMS) < timestamp {
 			lo = mid + 1
 		} else {
 			hi = mid
@@ -502,7 +495,7 @@ func (c *capture) subscribe(after uint64, hasAfter bool) ([]row, <-chan row, fun
 	}
 	backlog := make([]row, 0, c.seqEnd-start)
 	for seq := start; seq < c.seqEnd; seq++ {
-		backlog = append(backlog, c.rows[seq%uint64(c.retentionRows)])
+		backlog = append(backlog, c.rows[seq])
 	}
 	updates := make(chan row, 1_024)
 	c.subscribers[updates] = struct{}{}

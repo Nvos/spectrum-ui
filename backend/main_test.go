@@ -68,6 +68,32 @@ func TestMetadataAndHistoryPageShareSequenceSpace(t *testing.T) {
 	}
 }
 
+func TestSessionKeepsPagesFromItsBeginning(t *testing.T) {
+	c := newCapture(captureConfig{FreqStart: 25_000, Resolution: 1_500, BinCount: 64})
+	c.mu.Lock()
+	for seq := c.seqEnd; seq < 20_000; seq++ {
+		c.rows = append(c.rows, row{
+			Seq:         seq,
+			TimestampMS: float64(c.startedAt) + float64(seq*60),
+			Spectrum:    make([]int8, c.config.BinCount),
+		})
+		c.seqEnd++
+	}
+	c.mu.Unlock()
+
+	pages, status := c.pages(0, 1)
+	if status != http.StatusOK {
+		t.Fatalf("oldest page status = %d, want %d", status, http.StatusOK)
+	}
+	if pages[0][0].Seq != 0 {
+		t.Fatalf("oldest retained seq = %d, want 0", pages[0][0].Seq)
+	}
+	got := c.metadata()
+	if got.SeqStart != 0 || got.SeqEnd != 20_000 || got.Retention.Policy != "session" {
+		t.Fatalf("unexpected session retention metadata: %+v", got)
+	}
+}
+
 func uintToString(value uint64) string {
 	if value == 0 {
 		return "0"

@@ -43,11 +43,9 @@ export type HistoryState = {
   displayRows: number;
   /** Wall-clock time of the anchor row, or 0 when it is unavailable. */
   timestampMs: number;
-  /**
-   * True while the anchor is pinned against the oldest retained row. The
-   * treadmill is dragging it forward, so the paused timestamp keeps changing --
-   * which reads as a bug unless the UI labels it.
-   */
+  /** True while the visible historical page window is being fetched. */
+  loading: boolean;
+  /** True while the anchor is pinned against the oldest available window. */
   atOldest: boolean;
   /** Distance from live as a fraction of retained history; 0 = live. */
   scrollTop: number;
@@ -233,6 +231,7 @@ export class SpectrumCore {
       totalWritten,
       displayRows: tc.displayRows,
       timestampMs: spectrum.hasAbs(tc.anchorRow) ? spectrum.timestampAtAbs(tc.anchorRow) : 0,
+      loading: this.frameBuffer.historyLoading,
       atOldest: tc.atOldest,
       scrollTop,
       scrollSize,
@@ -251,6 +250,7 @@ export class SpectrumCore {
       prev === null ||
       prev.following !== next.following ||
       prev.atOldest !== next.atOldest ||
+      prev.loading !== next.loading ||
       Math.floor(prev.timestampMs / 1000) !== Math.floor(next.timestampMs / 1000) ||
       prev.displayRows !== next.displayRows ||
       Math.abs(prev.scrollTop - next.scrollTop) > 0.002 ||
@@ -277,10 +277,18 @@ export class SpectrumCore {
     this.scheduleRender?.();
   }
 
-  /** Park at the oldest retained row, where the treadmill takes over. */
+  /** Park at the oldest available backend window. */
   scrollHistoryToOldest() {
     this.timeCursor.scrollToOldest();
     this.scheduleRender?.();
+  }
+
+  beginHistoryGesture() {
+    this.frameBuffer.setHistoryGestureActive(true);
+  }
+
+  endHistoryGesture() {
+    this.frameBuffer.setHistoryGestureActive(false);
   }
 
   // oxlint-disable-next-line max-lines-per-function
@@ -364,6 +372,12 @@ export class SpectrumCore {
       // Bound the anchor before anything reads it, so every layer in this frame
       // sees the same time window.
       timeCursor.clamp(buffer.totalWritten, buffer.oldestAbs());
+      this.frameBuffer.requestHistoryWindow({
+        anchorRow: timeCursor.anchorRow,
+        displayRows: timeCursor.displayRows,
+        following: timeCursor.follow,
+        interacting: this.frameBuffer.historyGestureActive,
+      });
       tooltipController.refresh();
       freqAxisController.update(viewport.start, viewport.end);
       subviewHighlightController.update(viewport.start, viewport.end);
@@ -412,6 +426,7 @@ export class SpectrumCore {
 
     this.lastProcessedCount = buffer.totalWritten;
     this.frameBuffer.onPush = scheduleRender;
+    this.frameBuffer.onHistoryLoad = scheduleRender;
 
     this.waterfallRenderer = waterfallRenderer;
     this.liveRenderer = liveRenderer;
@@ -449,6 +464,7 @@ export class SpectrumCore {
     this.waterfallResizeObserver = null;
     this.lastHistoryState = null;
     this.frameBuffer.onPush = null;
+    this.frameBuffer.onHistoryLoad = null;
     this.profileDragHandler?.destroy();
     this.profileDragHandler = null;
     this.scheduleRender = null;

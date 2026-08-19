@@ -217,8 +217,7 @@ export const historyIndicatorPaused = style({
   color: "rgba(250, 190, 40, 0.95)",
 });
 
-// Shown while the ring is overwriting rows under the parked view -- the
-// treadmill. Without it the paused timestamp appears to change on its own.
+// Marks the oldest available edge of the backend session.
 export const historyExpiringEdge = style({
   position: "absolute",
   left: 0,
