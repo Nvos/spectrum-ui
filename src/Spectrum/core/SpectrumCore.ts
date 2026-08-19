@@ -25,8 +25,8 @@ import type { SubviewHandle, SubviewRefs } from "./SpectrumSubviewCore";
 import type { HighlightRange } from "./SubviewHighlightController";
 
 export type SpectrumInitialData = {
-  spectrum: { rows: Int8Array; count: number; timestamps: number[] };
-  annotations: { rows: Int8Array; count: number; timestamps: number[] };
+  spectrum: { rows: Int8Array; count: number; timestamps: number[]; seqStart?: number };
+  annotations: { rows: Int8Array; count: number; timestamps: number[]; seqStart?: number };
   maxHold: Int8Array;
   maxSnapshot?: Int8Array;
   occupancy: { counts: Uint32Array; total: number; threshold: number };

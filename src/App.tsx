@@ -14,8 +14,13 @@ import {
   SpectrumSubview,
 } from "./Spectrum";
 import type { ProfileRange, SpectrumInitialData } from "./Spectrum";
-import { generateHydrationPayload, generateLiveFrame, TICK_MS } from "./mock";
-import type { HydrationPayload } from "./mock";
+import {
+  createCapture,
+  getCurrentCapture,
+  loadInitialHistory,
+  streamLiveFrames,
+} from "./api";
+import type { CaptureMetadata } from "./api";
 import {
   avgTauAtom,
   bandsAtom,
@@ -495,42 +500,6 @@ const DEMO_BANDS: Band[] = [
   },
 ];
 
-const decodeHydration = (payload: HydrationPayload): SpectrumInitialData => {
-  const { binCount, spectrum, annotations } = payload;
-  const count = spectrum.count;
-
-  const tsBuf = new Uint8Array(count * 8);
-  tsBuf.setFromBase64(payload.timestamps);
-  const timestamps = Array.from(new Float64Array(tsBuf.buffer));
-
-  const specBuf = new Uint8Array(count * binCount);
-  specBuf.setFromBase64(spectrum.rows);
-
-  const annBuf = new Uint8Array(count * binCount);
-  annBuf.setFromBase64(annotations.rows);
-
-  const maxHoldBuf = new Uint8Array(binCount);
-  maxHoldBuf.setFromBase64(payload.maxHold);
-
-  const maxSnapshotBuf = new Uint8Array(binCount);
-  maxSnapshotBuf.setFromBase64(payload.maxSnapshot);
-
-  const occBuf = new Uint8Array(binCount * 4);
-  occBuf.setFromBase64(payload.occupancy.counts);
-
-  return {
-    spectrum: { rows: new Int8Array(specBuf.buffer), count, timestamps },
-    annotations: { rows: new Int8Array(annBuf.buffer), count, timestamps },
-    maxHold: new Int8Array(maxHoldBuf.buffer),
-    maxSnapshot: new Int8Array(maxSnapshotBuf.buffer),
-    occupancy: {
-      counts: new Uint32Array(occBuf.buffer),
-      total: payload.occupancy.total,
-      threshold: payload.occupancy.threshold,
-    },
-  };
-};
-
 const LAYERS: { id: LayerName; label: string; color: string }[] = [
   { id: "live", label: "Live", color: "#4ade80" },
   { id: "avg", label: "Average", color: "#fabe28" },
@@ -549,50 +518,35 @@ const AVG_TAU_LABELS: Record<number, string> = {
 };
 
 type SpectrumParams = { freqStart: number; resolution: number; binCount: number; historyRows: number };
-type SpectrumConfig = { params: SpectrumParams; initialData?: SpectrumInitialData };
+type SpectrumConfig = {
+  params: SpectrumParams;
+  initialData?: SpectrumInitialData;
+  capture?: CaptureMetadata;
+};
 
-const useMockInterval = (frameBuffer: FrameBuffer | null, binCount: number) => {
-  const frameBytesRef = useRef(new Uint8Array(12 + 2 * binCount));
-  if (frameBytesRef.current.length !== 12 + 2 * binCount) {
-    frameBytesRef.current = new Uint8Array(12 + 2 * binCount);
-  }
-
-  const processFrame = useCallback(
-    (frame: string) => {
-      if (!frameBuffer) return;
-      frameBytesRef.current.setFromBase64(frame);
-      const bytes = frameBytesRef.current;
-      const dv = new DataView(bytes.buffer);
-      const timestampMs = dv.getFloat64(0, true);
-      const waterfallLen = dv.getUint16(8, true);
-      const annotationLen = dv.getUint16(10, true);
-      const waterfallRow = new Int8Array(bytes.buffer, 12, waterfallLen);
-      const annotationRow = new Int8Array(bytes.buffer, 12 + waterfallLen, annotationLen);
-      frameBuffer.push(waterfallRow, annotationRow, timestampMs);
-    },
-    [frameBuffer],
-  );
-
+const useBackendStream = (frameBuffer: FrameBuffer | null, capture?: CaptureMetadata) => {
   useEffect(() => {
-    if (!frameBuffer) return;
-    let handle: ReturnType<typeof setInterval> | null = null;
-    const start = () => {
-      handle = setInterval(() => processFrame(generateLiveFrame(binCount)), TICK_MS);
-    };
-    const stop = () => {
-      if (handle !== null) {
-        clearInterval(handle);
-        handle = null;
+    if (!frameBuffer || !capture) return;
+    const controller = new AbortController();
+    const run = async () => {
+      while (!controller.signal.aborted) {
+        try {
+          await streamLiveFrames(
+            capture,
+            frameBuffer.spectrum.totalWritten - 1,
+            (frame) => frameBuffer.pushAt(frame.seq, frame.spectrum, frame.annotations, frame.timestampMs),
+            controller.signal,
+          );
+        } catch (error) {
+          if (controller.signal.aborted) return;
+          console.error("[spectrum] live stream disconnected", error);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 750));
       }
     };
-    const onVisibility = () => (document.hidden ? stop() : start());
-    document.addEventListener("visibilitychange", onVisibility);
-    start();
-    return () => {
-      stop();
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
-  }, [processFrame, binCount]);
+    void run();
+    return () => controller.abort();
+  }, [frameBuffer, capture]);
 };
 
 // Bridges Jotai atoms → SpectrumCore imperative API.
@@ -642,18 +596,40 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
   const [subviewFlexMap, setSubviewFlexMap] = useState<Record<number, number>>({});
   const subviewsRowRef = useRef<HTMLDivElement>(null);
 
-  const [config, setConfig] = useState<SpectrumConfig | null>(() => {
-    const initialData = decodeHydration(generateHydrationPayload(DEFAULT_BINS));
-    return {
-      params: {
-        freqStart: 25_000,
-        resolution: 1500,
-        binCount: DEFAULT_BINS,
-        historyRows: DEFAULT_HISTORY_ROWS,
-      },
-      initialData,
+  const [backendStatus, setBackendStatus] = useState("Connecting to mock backend…");
+  const [config, setConfig] = useState<SpectrumConfig | null>(null);
+
+  const installCapture = useCallback(
+    async (capture: CaptureMetadata, historyRows: number) => {
+      setBackendStatus("Loading recent history…");
+      const initialData = await loadInitialHistory(capture);
+      const params = {
+        freqStart: capture.freqStart,
+        resolution: capture.resolution,
+        binCount: capture.binCount,
+        historyRows,
+      };
+      store.set(occupancyThresholdAtom, initialData.occupancy.threshold);
+      setParamsForm(params);
+      setConfig({ params, initialData, capture });
+      setBackendStatus("");
+    },
+    [store],
+  );
+
+  useEffect(() => {
+    let active = true;
+    void getCurrentCapture()
+      .then((capture) => {
+        if (active) return installCapture(capture, DEFAULT_HISTORY_ROWS);
+      })
+      .catch((error: unknown) => {
+        if (active) setBackendStatus(error instanceof Error ? error.message : "Backend unavailable");
+      });
+    return () => {
+      active = false;
     };
-  });
+  }, [installCapture]);
 
   const { frameBuffer, core } = useMemo(() => {
     if (!config) return { frameBuffer: null, core: null };
@@ -685,7 +661,7 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config]);
 
-  useMockInterval(frameBuffer, config?.params.binCount ?? DEFAULT_BINS);
+  useBackendStream(frameBuffer, config?.capture);
   useSpectrumCoreBridge(store, core);
 
   useEffect(() => {
@@ -761,12 +737,23 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
     handle.addEventListener("pointerup", onUp, { once: true });
   };
 
-  const handleRehydrate = () => {
-    // Must match the configured bin count — hydration rows are copied into the
-    // ring by byte offset, so a narrower payload smears across row boundaries.
-    const newData = decodeHydration(generateHydrationPayload(config?.params.binCount ?? DEFAULT_BINS));
-    store.set(occupancyThresholdAtom, newData.occupancy.threshold);
-    setConfig((prev) => (prev ? { params: prev.params, initialData: newData } : null));
+  const handleRehydrate = async () => {
+    try {
+      const capture = await getCurrentCapture();
+      await installCapture(capture, config?.params.historyRows ?? DEFAULT_HISTORY_ROWS);
+    } catch (error) {
+      setBackendStatus(error instanceof Error ? error.message : "Could not reload capture");
+    }
+  };
+
+  const handleApplyParams = async () => {
+    try {
+      setBackendStatus("Starting capture…");
+      const capture = await createCapture(paramsForm);
+      await installCapture(capture, paramsForm.historyRows);
+    } catch (error) {
+      setBackendStatus(error instanceof Error ? error.message : "Could not start capture");
+    }
   };
 
   const colorMap = useAtomValue(colorMapAtom);
@@ -920,13 +907,14 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
             />
           </label>
         ))}
-        <button onClick={() => setConfig({ params: paramsForm })} className={styles.button.active}>
+        <button onClick={() => void handleApplyParams()} className={styles.button.active}>
           Apply params
         </button>
         <button onClick={() => setConfig(null)} className={styles.button.inactive}>
           Clear
         </button>
       </div>
+      {backendStatus && <div role="status">{backendStatus}</div>}
       <div className={styles.spectrumContainer}>
         {core && <Spectrum core={core} profileRanges={profileRanges} bands={bands} />}
       </div>

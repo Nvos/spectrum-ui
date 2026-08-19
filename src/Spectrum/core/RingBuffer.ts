@@ -2,6 +2,8 @@ export type InitialRows = {
   rows: Int8Array;
   count: number;
   timestamps: number[];
+  /** Backend-assigned sequence of the first row. Defaults to zero for local data. */
+  seqStart?: number;
 };
 
 /**
@@ -19,34 +21,52 @@ export class RingBuffer {
   timestamps: Float64Array;
   writeRow: number = 0;
   totalWritten: number = 0;
+  private validStart: number = 0;
+  private readonly emptyFill: number;
 
   constructor(rowCount: number, binCount: number, initial?: InitialRows, emptyFill = 0) {
     this.rowCount = rowCount;
     this.binCount = binCount;
     this.data = new Int8Array(rowCount * binCount).fill(emptyFill);
     this.timestamps = new Float64Array(rowCount);
+    this.emptyFill = emptyFill;
 
-    if (initial && initial.count > 0) {
+    if (initial) {
       const count = Math.min(initial.count, rowCount);
-      this.data.set(initial.rows.subarray(0, count * binCount));
+      const sourceOffsetRows = initial.count - count;
+      const seqStart = (initial.seqStart ?? 0) + sourceOffsetRows;
+      this.validStart = seqStart;
       for (let i = 0; i < count; i++) {
-        this.timestamps[i] = initial.timestamps[i];
+        const seq = seqStart + i;
+        const slot = seq % rowCount;
+        const sourceStart = (sourceOffsetRows + i) * binCount;
+        this.data.set(initial.rows.subarray(sourceStart, sourceStart + binCount), slot * binCount);
+        this.timestamps[slot] = initial.timestamps[sourceOffsetRows + i];
       }
-      this.writeRow = count % rowCount;
-      this.totalWritten = count;
+      this.totalWritten = seqStart + count;
+      this.writeRow = this.totalWritten % rowCount;
     }
   }
 
   push(row: Int8Array, timestampMs: number) {
-    this.data.set(row, this.writeRow * this.binCount);
-    this.timestamps[this.writeRow] = timestampMs;
-    this.writeRow = (this.writeRow + 1) % this.rowCount;
-    this.totalWritten++;
+    this.pushAt(this.totalWritten, row, timestampMs);
+  }
+
+  /** Writes a backend-addressed row. Duplicate/late rows are ignored. */
+  pushAt(absRow: number, row: Int8Array, timestampMs: number): boolean {
+    if (absRow < this.totalWritten) return false;
+    if (absRow > this.totalWritten) this.fillGap(this.totalWritten, absRow);
+    const slot = absRow % this.rowCount;
+    this.data.set(row, slot * this.binCount);
+    this.timestamps[slot] = timestampMs;
+    this.totalWritten = absRow + 1;
+    this.writeRow = this.totalWritten % this.rowCount;
+    return true;
   }
 
   /** Absolute index of the oldest row still retained. Rises with every push once the ring is full. */
   oldestAbs(): number {
-    return Math.max(0, this.totalWritten - this.rowCount);
+    return Math.max(this.validStart, this.totalWritten - this.rowCount);
   }
 
   /**
@@ -75,5 +95,14 @@ export class RingBuffer {
 
   timestampAtAbs(absRow: number): number {
     return this.timestamps[absRow % this.rowCount];
+  }
+
+  private fillGap(from: number, to: number) {
+    const first = Math.max(from, to - this.rowCount);
+    for (let abs = first; abs < to; abs++) {
+      const slot = abs % this.rowCount;
+      this.data.fill(this.emptyFill, slot * this.binCount, (slot + 1) * this.binCount);
+      this.timestamps[slot] = 0;
+    }
   }
 }

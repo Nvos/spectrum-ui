@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vp dev",
+    "dev:backend": "go -C backend run .",
     "build": "tsc -b && vp build",
     "preview": "vp preview"
   },

@@ -26,4 +26,12 @@ export class FrameBuffer {
     this.annotations.push(annRow, timestampMs);
     this.onPush?.();
   }
+
+  /** Pushes a row in the backend's absolute sequence space. */
+  pushAt(seq: number, specRow: Int8Array, annRow: Int8Array, timestampMs: number): boolean {
+    const accepted = this.spectrum.pushAt(seq, specRow, timestampMs);
+    this.annotations.pushAt(seq, annRow, timestampMs);
+    if (accepted) this.onPush?.();
+    return accepted;
+  }
 }

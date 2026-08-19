@@ -1,7 +1,14 @@
 # History paging — backend proposal (draft)
 
-Phase 2 of [history-scroll.md](history-scroll.md). Nothing here is implemented; this is
-a proposal to argue with.
+Phase 2 of [history-scroll.md](history-scroll.md).
+
+**Prototype status (August 2026):** the standard-library Go service in `backend/`
+implements session metadata, immutable aligned page batches, timestamp seek, retention
+errors, sparse annotations, and a live stream in the same backend-assigned `seq` space.
+The client hydrates its phase-1 ring from the last two completed pages. Demand paging,
+page-cache-backed scrolling, per-page aggregates, compression, and the WebSocket
+transport remain phase 2 work; the prototype uses a fetch-readable binary stream while
+preserving the proposed live frame semantics.
 
 The client keeps a 4096-row in-memory ring and scrolls it (phase 1). Phase 2 makes that
 ring a **cache window over backend history** rather than the archive itself.
