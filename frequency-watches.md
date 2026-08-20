@@ -2,11 +2,20 @@
 
 **Status:** proposal. Nothing here is built.
 
-**Superseded in part.** The lane half of this brief is now specced standalone and more
-accurately in [frequency-lanes.md](frequency-lanes.md), which found that lanes need **no
-new renderer** — `WaterfallRenderer` already crops via `binStart`/`binSpan`. Items 2 and 3
-below are stale; build lanes from the lanes brief. What remains live here is the watch
-concept (item 1) and the alerting half (items 4-5).
+**Superseded in part, twice.**
+
+1. The lane half is specced standalone and more accurately in
+   [frequency-lanes.md](frequency-lanes.md), which found that lanes need **no new
+   renderer** — `WaterfallRenderer` already crops via `binStart`/`binSpan`. Items 2, 3 and
+   6 below are stale and are **now implemented** from that brief; `ProfileRange.watched`
+   exists. The `alerting` flag in item 1 does not yet.
+2. The **detection source** has moved. This brief assumed the backend emits per-row
+   detections on the annotation channel. It does not — annotations are reserved for a
+   separate standalone purpose. The client-side detector is specced in
+   [signal-detection.md](signal-detection.md); the non-goal below and risk 3 are
+   **withdrawn**, and items 4-5 consume `DetectionLayer` instead.
+
+What remains live here is the watch concept (item 1) and the alerting half (items 4-5).
 
 Written from a cold context — no prior conversation required. Read it fully before editing
 anything.
@@ -36,8 +45,10 @@ renderer and an evaluator.
 
 - Server-side detection. Discussed in [Risks](#risks) as the eventual home for
   evaluation; this phase is client-side only and deliberately so.
-- A new signal detector. The backend already emits per-row detections; this brief
-  consumes them and does not add DSP.
+- ~~A new signal detector. The backend already emits per-row detections; this brief
+  consumes them and does not add DSP.~~ **Withdrawn** — annotations are a reserved,
+  separate channel. The detector is [signal-detection.md](signal-detection.md); this brief
+  consumes its `DetectionLayer` output.
 - Notifications outside the tab (OS notifications, email, webhook).
 - Preserving the existing standalone subview UI. It is replaced — see item 6.
 
@@ -214,10 +225,15 @@ horizontal scroll; removing all lanes restores the original layout exactly.
 
 **New file:** `src/Spectrum/core/WatchEvaluator.ts`
 
-Per pushed row, per alerting watch: does any annotation interval overlap the watch's bin
-range? Annotations are sparse (a few intervals per row), so this is a handful of integer
-comparisons per watch per row — it belongs in `processNewRows()` alongside the existing
-per-row fan-out.
+Per pushed row, per alerting watch: does any **detection interval** from `DetectionLayer`
+([signal-detection.md](signal-detection.md)) overlap the watch's bin range? Detections are
+sparse (a few runs per row), so this is a handful of integer comparisons per watch per row
+— it belongs in `processNewRows()` alongside the existing per-row fan-out.
+
+> **Do not read the annotation buffer here.** It is a reserved, separate channel.
+> `MIN_ROWS` / `RELEASE_ROWS` below also overlap the bin-level debouncing in
+> [signal-detection.md](signal-detection.md) item 1 — keep bin-level hysteresis there and
+> event-level edge detection here, and drop `MIN_ROWS` to 1 once that lands.
 
 ```ts
 type WatchEvent = {
@@ -288,10 +304,10 @@ wrong in the field, this is the commit to revert and nothing else needs unpickin
 2. **Alert fatigue.** A watch on a busy band produces continuous events and trains the
    user to ignore the feed. `MIN_ROWS` and `RELEASE_ROWS` are the mitigation; a per-watch
    mute is the fallback. Watch for this in field use before adding more surfaces.
-3. **Detector semantics are the backend's, not ours.** Every event inherits whatever
-   "signal present" means to the backend's signal model. If that detector is tuned for
-   display rather than for alerting, the events will be wrong in ways no amount of client
-   work fixes. Confirm this before item 4.
+3. ~~**Detector semantics are the backend's, not ours.**~~ **Withdrawn** — detection is
+   now ours and client-side, in [signal-detection.md](signal-detection.md). The risk that
+   replaces it lives there as its risk 2: a signal already transmitting before the session
+   began is invisible to a temporal detector by construction.
 4. **Lane count is bounded by WebGL contexts**, exactly as subviews were. Same mitigation
    as [history-scroll.md](history-scroll.md) item 9's end state — and lanes make it
    *cheap*, because adjacent columns in one row region are the natural case for a single
