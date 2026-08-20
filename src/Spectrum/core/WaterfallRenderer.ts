@@ -19,9 +19,9 @@ export type WaterfallSettings = {
   displayMin: number;
   displayMax: number;
   colormap: number;
-  /** First bin stored in the texture. Subviews crop; the main view uses 0. */
+  /** First bin stored in the texture. Lanes crop; the main view uses 0. */
   binStart?: number;
-  /** Bins stored in the texture. Subviews crop; the main view uses `binCount`. */
+  /** Bins stored in the texture. Lanes crop; the main view uses `binCount`. */
   binSpan?: number;
 };
 
@@ -118,7 +118,7 @@ export class WaterfallRenderer {
   /** Displayed rows D. A uniform, not a texture size, so resize never reallocates. */
   private displayRows = 1;
 
-  /** Texture bin window. Subviews store only the bins they can ever display. */
+  /** Texture bin window. Lanes store only the bins they can ever display. */
   private readonly texBinStart: number;
   private readonly texBins: number;
 

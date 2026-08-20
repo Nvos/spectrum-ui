@@ -25,7 +25,7 @@ type TooltipOptions = {
   maxHold: MaxHoldLayer;
   occupancyLayer?: OccupancyRenderer;
   viewport: Viewport;
-  // Subview: normalized position of this view within the full spectrum [0, 1].
+  // Cropped pane: normalized position of this view within the full spectrum [0, 1].
   // Used to convert viewport coords (full-spectrum space) to local frequency.
   // Defaults to [0, 1] for the main view.
   normalizedStart?: number;

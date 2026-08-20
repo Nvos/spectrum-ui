@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import type { ProfileRange } from "../core/ProfileTypes";
+import { MAX_LANES } from "../core/constants";
 
 type Props = {
   ranges: ProfileRange[];
@@ -23,6 +24,7 @@ export const ProfilePanel = ({ ranges, freqStartMHz, freqEndMHz, onChange }: Pro
         freqStartMHz: center - half,
         freqEndMHz: center + half,
         powerDbm: -80,
+        watched: false,
       },
     ]);
 
@@ -44,6 +46,12 @@ export const ProfilePanel = ({ ranges, freqStartMHz, freqEndMHz, onChange }: Pro
   };
 
   const remove = (id: string) => onChange(ranges.filter((r) => r.id !== id));
+
+  // Each lane is one WebGL context and browsers cap how many can be live at
+  // once, dropping the oldest silently past the limit. Refuse the seventh here
+  // rather than let an unrelated pane go black. See MAX_LANES.
+  const watchedCount = ranges.filter((r) => r.watched).length;
+  const atLaneCap = watchedCount >= MAX_LANES;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
@@ -106,6 +114,25 @@ export const ProfilePanel = ({ ranges, freqStartMHz, freqEndMHz, onChange }: Pro
             />
             <span style={{ opacity: 0.4 }}>dBm</span>
           </div>
+          <label
+            style={{
+              display: "flex",
+              gap: "0.5rem",
+              alignItems: "center",
+              paddingLeft: "1.25rem",
+              fontSize: "0.75rem",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={r.watched}
+              disabled={atLaneCap && !r.watched}
+              onChange={(e) => update(r.id, "watched", e.target.checked)}
+            />
+            <span style={{ opacity: atLaneCap && !r.watched ? 0.3 : 0.6 }}>
+              lane{atLaneCap && !r.watched ? ` (max ${MAX_LANES})` : ""}
+            </span>
+          </label>
         </div>
       ))}
       <button type="button" onClick={add}>

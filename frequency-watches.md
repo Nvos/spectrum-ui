@@ -1,7 +1,15 @@
 # Frequency watches — execution brief
 
-**Status:** proposal. Nothing here is built. Written from a cold context — no prior
-conversation required. Read it fully before editing anything.
+**Status:** proposal. Nothing here is built.
+
+**Superseded in part.** The lane half of this brief is now specced standalone and more
+accurately in [frequency-lanes.md](frequency-lanes.md), which found that lanes need **no
+new renderer** — `WaterfallRenderer` already crops via `binStart`/`binSpan`. Items 2 and 3
+below are stale; build lanes from the lanes brief. What remains live here is the watch
+concept (item 1) and the alerting half (items 4-5).
+
+Written from a cold context — no prior conversation required. Read it fully before editing
+anything.
 
 Supersedes the standalone subview form in [history-scroll.md](history-scroll.md) item 9.
 Builds on the history stack from [history-scroll.md](history-scroll.md) and
@@ -155,9 +163,15 @@ different intents — a busy band is worth watching and useless to alert on.
 **Done when:** existing ranges are unchanged at runtime; the two flags round-trip through
 the profile panel; `npx tsc -b` clean.
 
-### 2. `WatchLaneRenderer` — the lane itself
+### 2. The lane — **see [frequency-lanes.md](frequency-lanes.md)**
 
-**New file:** `src/Spectrum/core/WatchLaneRenderer.ts`
+> **Stale.** This item assumed a new renderer was needed. It is not:
+> `WaterfallRenderer` already accepts `binStart` / `binSpan` and an externally-owned
+> `TimeCursor`, so a lane is that renderer with a cropped texture and a frozen
+> `Viewport`. Build items 1-4 of [frequency-lanes.md](frequency-lanes.md) instead of this
+> item and item 3. The description below is kept only for the reasoning about cropping.
+
+**Was: new file** `src/Spectrum/core/WatchLaneRenderer.ts`
 
 A cropped waterfall over the watch's bin range, reading the shared `TimeCursor`. This is
 `WaterfallRenderer` with a narrower texture — item 9 of
@@ -303,14 +317,11 @@ Out of scope, listed so they are not re-derived.
 
 | # | Item | Est. |
 |---|---|---|
-| 1 | Extend `ProfileRange` | 1h |
-| 2 | `WatchLaneRenderer` | 4h |
-| 3 | Lane layout | 3h |
+| 1-3, 6 | Lanes — **see [frequency-lanes.md](frequency-lanes.md)** | 8h |
 | | **Checkpoint A — watched ranges are visible, no alerting yet** | |
 | 4 | `WatchEvaluator` | 3h |
 | 5 | Event surfacing | 4h |
 | | **Checkpoint B — feature complete** | |
-| 6 | Remove standalone subviews | 2h |
 
-Items 1–3 are strictly ordered. Items 4–5 depend only on item 1 and can proceed in
-parallel with 2–3. Item 6 is last and is the only one that is hard to revert.
+The alerting items (4-5) depend only on the `watched` / `alerting` flags from item 1 of
+the lanes brief, so they can proceed in parallel with the lane work once that lands.

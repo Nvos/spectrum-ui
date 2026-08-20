@@ -98,55 +98,6 @@ export const recordingSelect = style({
   fontSize: "0.75rem",
 });
 
-export const subviewsRow = style({
-  display: "flex",
-  padding: "0 2rem 1rem",
-  height: "16rem",
-  flexShrink: 0,
-  overflowX: "auto",
-});
-
-export const subviewWrapper = style({
-  display: "flex",
-  flexDirection: "column",
-  minWidth: "18rem",
-  flexShrink: 0,
-});
-
-export const resizeHandle = style({
-  width: "10px",
-  flexShrink: 0,
-  cursor: "col-resize",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  borderRadius: "2px",
-  transition: "background 0.12s",
-  selectors: {
-    "&:hover": { background: "rgba(255,255,255,0.06)" },
-    "&:active": { background: "rgba(255,255,255,0.1)" },
-  },
-});
-
-export const resizeHandleBar = style({
-  width: "2px",
-  height: "40%",
-  borderRadius: "1px",
-  background: "rgba(255,255,255,0.15)",
-  pointerEvents: "none",
-});
-
-export const subviewHeader = style({
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  padding: "0.125rem 0.25rem 0.25rem",
-  fontSize: "0.75rem",
-  fontFamily: font.mono,
-  color: "rgba(255,255,255,0.3)",
-  flexShrink: 0,
-});
-
 export const drawerOverlay = style({
   position: "fixed",
   inset: 0,

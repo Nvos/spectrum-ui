@@ -11,7 +11,6 @@ import {
   ProfilePanel,
   Spectrum,
   SpectrumCore,
-  SpectrumSubview,
 } from "./Spectrum";
 import type { ProfileRange, SpectrumInitialData } from "./Spectrum";
 import {
@@ -36,14 +35,6 @@ import {
 } from "./Spectrum/react/store";
 import type { LayerName, SpectrumStore } from "./Spectrum/react/store";
 import type { Band } from "./Spectrum/core/BandTypes";
-
-const SUBVIEW_PALETTE = [
-  { band: "rgba(100, 210, 255, 0.18)", accent: "#64d2ff" },
-  { band: "rgba(255, 180, 50, 0.18)", accent: "#ffb432" },
-  { band: "rgba(180, 130, 255, 0.18)", accent: "#b482ff" },
-  { band: "rgba(100, 255, 160, 0.18)", accent: "#64ffa0" },
-  { band: "rgba(255, 100, 130, 0.18)", accent: "#ff6482" },
-];
 
 const DEFAULT_BINS = 4000;
 // Retained history depth N. Deliberately NOT the displayed row count -- the
@@ -586,19 +577,12 @@ const DEFAULT_PARAMS: SpectrumParams = {
 };
 
 // Inner component — lives inside <Provider store={store}> so atom hooks work.
-type SubviewDef = { id: number; freqStart: number; freqEnd: number };
-
 const AppInner = ({ store }: { store: SpectrumStore }) => {
   const [paramsForm, setParamsForm] = useState<SpectrumParams>(DEFAULT_PARAMS);
   const [profileDrawerOpen, setProfileDrawerOpen] = useState(false);
   const [profileRanges, setProfileRanges] = useState<ProfileRange[]>([]);
   const profileRangesRef = useRef(profileRanges);
   profileRangesRef.current = profileRanges;
-  const [subviewDefs, setSubviewDefs] = useState<SubviewDef[]>([]);
-  const [subviewForm, setSubviewForm] = useState({ freqStart: 144_000, freqEnd: 174_000 });
-  const nextSubviewId = useRef(0);
-  const [subviewFlexMap, setSubviewFlexMap] = useState<Record<number, number>>({});
-  const subviewsRowRef = useRef<HTMLDivElement>(null);
 
   const [backendStatus, setBackendStatus] = useState("Connecting to mock backend…");
   const [config, setConfig] = useState<SpectrumConfig | null>(null);
@@ -680,79 +664,6 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
     });
     return () => pager.dispose();
   }, [frameBuffer, config]);
-
-  useEffect(() => {
-    if (!core || !config) return;
-    const { freqStart, binCount, resolution } = config.params;
-    const globalSpan = binCount * resolution;
-    core.setSubviewHighlights(
-      subviewDefs.map((def, i) => ({
-        normalizedStart: (def.freqStart - freqStart) / globalSpan,
-        normalizedEnd: (def.freqEnd - freqStart) / globalSpan,
-        color: SUBVIEW_PALETTE[i % SUBVIEW_PALETTE.length].band,
-      })),
-    );
-  }, [subviewDefs, core, config]);
-
-  // Keep flex map in sync with subviewDefs: new ids get the average flex of existing ones
-  // so a freshly added subview starts at equal share; removed ids are dropped.
-  useEffect(() => {
-    setSubviewFlexMap((prev) => {
-      const vals = Object.values(prev);
-      const avg = vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : 1;
-      const next: Record<number, number> = {};
-      for (const def of subviewDefs) next[def.id] = prev[def.id] ?? avg;
-      return next;
-    });
-  }, [subviewDefs]);
-
-  const HANDLE_WIDTH_PX = 10;
-  const MIN_SUBVIEW_WIDTH_PX = 288; // 18rem
-
-  const handleResizePointerDown = (e: React.PointerEvent<HTMLDivElement>, leftIdx: number) => {
-    e.preventDefault();
-    const handle = e.currentTarget;
-    handle.setPointerCapture(e.pointerId);
-    document.body.style.userSelect = "none";
-
-    const startX = e.clientX;
-    const container = subviewsRowRef.current;
-    if (!container) return;
-
-    const cs = getComputedStyle(container);
-    const availW =
-      container.clientWidth -
-      parseFloat(cs.paddingLeft) -
-      parseFloat(cs.paddingRight) -
-      (subviewDefs.length - 1) * HANDLE_WIDTH_PX;
-
-    const startFlexes = subviewDefs.map((def) => subviewFlexMap[def.id] ?? 1);
-    const totalFlex = startFlexes.reduce((a, b) => a + b, 0);
-    const minFlex = (MIN_SUBVIEW_WIDTH_PX / availW) * totalFlex;
-    const leftId = subviewDefs[leftIdx].id;
-    const rightId = subviewDefs[leftIdx + 1].id;
-
-    const onMove = (me: PointerEvent) => {
-      const raw = ((me.clientX - startX) / availW) * totalFlex;
-      const delta = Math.max(
-        -(startFlexes[leftIdx] - minFlex),
-        Math.min(startFlexes[leftIdx + 1] - minFlex, raw),
-      );
-      setSubviewFlexMap((prev) => ({
-        ...prev,
-        [leftId]: startFlexes[leftIdx] + delta,
-        [rightId]: startFlexes[leftIdx + 1] - delta,
-      }));
-    };
-
-    const onUp = () => {
-      handle.removeEventListener("pointermove", onMove);
-      document.body.style.userSelect = "";
-    };
-
-    handle.addEventListener("pointermove", onMove);
-    handle.addEventListener("pointerup", onUp, { once: true });
-  };
 
   const handleRehydrate = async () => {
     try {
@@ -886,33 +797,6 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
           Profiles {profileRanges.length > 0 ? `(${profileRanges.length})` : ""}
         </button>
         <div className={styles.separator} />
-        <span className={styles.occLabel}>zoom</span>
-        <input
-          type="number"
-          value={subviewForm.freqStart}
-          onChange={(e) => setSubviewForm((p) => ({ ...p, freqStart: Number(e.target.value) }))}
-          className={styles.numberInput}
-          style={{ width: "6rem" }}
-        />
-        <span className={styles.occLabel}>–</span>
-        <input
-          type="number"
-          value={subviewForm.freqEnd}
-          onChange={(e) => setSubviewForm((p) => ({ ...p, freqEnd: Number(e.target.value) }))}
-          className={styles.numberInput}
-          style={{ width: "6rem" }}
-        />
-        <span className={styles.occLabel}>kHz</span>
-        <button
-          onClick={() => {
-            if (!core) return;
-            setSubviewDefs((prev) => [...prev, { id: nextSubviewId.current++, ...subviewForm }]);
-          }}
-          className={styles.button.inactive}
-        >
-          Add zoom
-        </button>
-        <div className={styles.separator} />
         <span className={styles.occLabel}>occ thr</span>
         <input
           type="number"
@@ -1015,46 +899,6 @@ const AppInner = ({ store }: { store: SpectrumStore }) => {
             </div>
           </div>
         </>
-      )}
-      {core && subviewDefs.length > 0 && (
-        <div className={styles.subviewsRow} ref={subviewsRowRef}>
-          {subviewDefs.flatMap((def, i) => {
-            const { accent } = SUBVIEW_PALETTE[i % SUBVIEW_PALETTE.length];
-            const elements = [];
-            if (i > 0) {
-              elements.push(
-                <div
-                  key={`handle-${def.id}`}
-                  className={styles.resizeHandle}
-                  onPointerDown={(e) => handleResizePointerDown(e, i - 1)}
-                >
-                  <div className={styles.resizeHandleBar} />
-                </div>,
-              );
-            }
-            elements.push(
-              <div
-                key={def.id}
-                className={styles.subviewWrapper}
-                style={{ borderTop: `2px solid ${accent}`, flex: subviewFlexMap[def.id] ?? 1 }}
-              >
-                <div className={styles.subviewHeader}>
-                  <span style={{ color: accent }}>
-                    {(def.freqStart / 1000).toFixed(0)}–{(def.freqEnd / 1000).toFixed(0)} MHz
-                  </span>
-                  <button
-                    onClick={() => setSubviewDefs((prev) => prev.filter((d) => d.id !== def.id))}
-                    className={styles.button.inactive}
-                  >
-                    ✕
-                  </button>
-                </div>
-                <SpectrumSubview core={core} freqStart={def.freqStart} freqEnd={def.freqEnd} />
-              </div>,
-            );
-            return elements;
-          })}
-        </div>
       )}
     </div>
   );

@@ -1,4 +1,4 @@
-import type { ReactNode, RefObject } from "react";
+import type { CSSProperties, ReactNode, RefObject } from "react";
 import * as styles from "./SpectrumRows.css";
 
 type BandRowProps = {
@@ -10,6 +10,7 @@ export const BandRow = ({ bandContainerRef }: BandRowProps) => {
     <div className={styles.bandRow}>
       <div className={styles.bandRowSpacer} />
       <div ref={bandContainerRef} className={styles.bandContainer} />
+      <div className={styles.laneSpacer} />
       <div className={styles.spacerW10} />
     </div>
   );
@@ -29,6 +30,7 @@ export const LiveRow = ({ liveRef, powerAxisRef, gridContainerRef }: LiveRowProp
         <canvas className={styles.liveCanvas} ref={liveRef} />
         <div ref={gridContainerRef} className={styles.gridOverlay} />
       </div>
+      <div className={styles.laneSpacer} />
       <div className={styles.spacerW10} />
     </div>
   );
@@ -43,6 +45,7 @@ export const OccupancyRow = ({ occupancyRef }: OccupancyRowProps) => {
     <div className={styles.occupancyRow}>
       <div className={styles.occupancyRowSpacer} />
       <canvas className={styles.occupancyCanvas} ref={occupancyRef} />
+      <div className={styles.laneSpacer} />
       <div className={styles.spacerW10} />
     </div>
   );
@@ -53,19 +56,24 @@ type WaterfallRowProps = {
   annotationRef: RefObject<HTMLCanvasElement | null>;
   timeLabelsRef: RefObject<HTMLDivElement | null>;
   colormapLegendRef: RefObject<HTMLDivElement | null>;
+  /** Measured to cap the lane strip against the row it takes its width from. */
+  rowRef?: RefObject<HTMLDivElement | null>;
+  /** Frequency lanes, sharing this row's height and so the main view's time axis. */
+  lanes?: ReactNode;
   /** History scrollbar / follow indicator, overlaid on the waterfall. */
   overlay?: ReactNode;
 };
 
-export const WaterfallRow = ({ waterfallRef, annotationRef, timeLabelsRef, colormapLegendRef, overlay }: WaterfallRowProps) => {
+export const WaterfallRow = ({ waterfallRef, annotationRef, timeLabelsRef, colormapLegendRef, rowRef, lanes, overlay }: WaterfallRowProps) => {
   return (
-    <div className={styles.waterfallRow}>
+    <div className={styles.waterfallRow} ref={rowRef}>
       <div ref={timeLabelsRef} className={styles.timeLabels} />
       <div className={styles.waterfallCanvasContainer}>
         <canvas className={styles.waterfallCanvas} ref={waterfallRef} />
         <canvas className={styles.annotationCanvas} ref={annotationRef} />
         {overlay}
       </div>
+      {lanes}
       <div ref={colormapLegendRef} />
     </div>
   );
@@ -77,12 +85,15 @@ type LayoutProps = {
   annotationRef: RefObject<HTMLCanvasElement | null>;
   occupancyRef: RefObject<HTMLCanvasElement | null>;
   freqAxisRef: RefObject<HTMLDivElement | null>;
-  subviewHighlightRef: RefObject<HTMLDivElement | null>;
   timeLabelsRef: RefObject<HTMLDivElement | null>;
   powerAxisRef: RefObject<HTMLDivElement | null>;
   colormapLegendRef: RefObject<HTMLDivElement | null>;
   bandContainerRef: RefObject<HTMLDivElement | null>;
   gridContainerRef: RefObject<HTMLDivElement | null>;
+  waterfallRowRef?: RefObject<HTMLDivElement | null>;
+  lanes?: ReactNode;
+  /** Width the lane strip occupies, reserved on every row above the waterfall. */
+  laneTotalWidthPx?: number;
   waterfallOverlay?: ReactNode;
 };
 
@@ -92,25 +103,29 @@ export const SpectrumLayout = ({
   annotationRef,
   occupancyRef,
   freqAxisRef,
-  subviewHighlightRef,
   timeLabelsRef,
   powerAxisRef,
   colormapLegendRef,
   bandContainerRef,
   gridContainerRef,
+  waterfallRowRef,
+  lanes,
+  laneTotalWidthPx = 0,
   waterfallOverlay,
 }: LayoutProps) => {
   return (
     <div className={styles.layout}>
-      <div className={styles.layoutInner}>
+      <div
+        className={styles.layoutInner}
+        style={{ [styles.laneTotalWidthProperty]: `${laneTotalWidthPx}px` } as CSSProperties}
+      >
         <BandRow bandContainerRef={bandContainerRef} />
         <LiveRow liveRef={liveRef} powerAxisRef={powerAxisRef} gridContainerRef={gridContainerRef} />
         <OccupancyRow occupancyRef={occupancyRef} />
         <div className={styles.freqAxisRow}>
           <div className={styles.freqAxisLeft} />
-          <div className={styles.freqAxisContainer} ref={freqAxisRef}>
-            <div ref={subviewHighlightRef} style={{ position: "absolute", inset: 0, pointerEvents: "none" }} />
-          </div>
+          <div className={styles.freqAxisContainer} ref={freqAxisRef} />
+          <div className={styles.laneSpacer} />
           <div className={styles.freqAxisRight} />
         </div>
         <WaterfallRow
@@ -118,6 +133,8 @@ export const SpectrumLayout = ({
           annotationRef={annotationRef}
           timeLabelsRef={timeLabelsRef}
           colormapLegendRef={colormapLegendRef}
+          rowRef={waterfallRowRef}
+          lanes={lanes}
           overlay={waterfallOverlay}
         />
       </div>

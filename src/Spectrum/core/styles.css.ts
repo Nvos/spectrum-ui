@@ -3,7 +3,7 @@ import { background, text, font } from "../tokens";
 
 /**
  * Width of the left gutter (power axis / time labels). The main view widens it
- * to fit an absolute HH:MM:SS timestamp; subviews keep the compact default.
+ * to fit an absolute HH:MM:SS timestamp; other layouts keep the compact default.
  * Every gutter in a layout must use the same value or the panes stop aligning.
  */
 export const gutterWidthVar = createVar();
@@ -178,4 +178,17 @@ export const tooltipDivider = style({
   height: "1px",
   backgroundColor: "rgba(255,255,255,0.1)",
   margin: "0.25rem 0",
+});
+
+// --- Frequency lane ---
+
+// Created by LaneCore, not by React -- see LaneCore.mount. Fills its host box
+// exactly, so the lane canvas is the same height as the main waterfall canvas
+// and one row maps to one pixel in both.
+export const laneCanvas = style({
+  position: "absolute",
+  inset: 0,
+  display: "block",
+  width: "100%",
+  height: "100%",
 });

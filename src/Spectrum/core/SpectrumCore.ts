@@ -10,20 +10,17 @@ import { FrequencyAxisController } from "./FrequencyAxisController";
 import { GridLineController } from "./GridLineController";
 import { FrameBuffer } from "./FrameBuffer";
 import { InputHandler } from "./InputHandler";
+import { LaneCore } from "./LaneCore";
 import { TimeGutterInput } from "./TimeGutterInput";
 import { LiveRenderer } from "./LiveRenderer";
 import { MaxHoldLayer } from "./MaxHoldLayer";
 import { OccupancyRenderer } from "./OccupancyRenderer";
 import { PowerAxisController } from "./PowerAxisController";
-import { SpectrumSubviewCore } from "./SpectrumSubviewCore";
-import { SubviewHighlightController } from "./SubviewHighlightController";
 import { TimeCursor } from "./TimeCursor";
 import { TimeLabelsController } from "./TimeLabelsController";
 import { TooltipController } from "./TooltipController";
 import { Viewport } from "./Viewport";
 import { WaterfallRenderer } from "./WaterfallRenderer";
-import type { SubviewHandle, SubviewRefs } from "./SpectrumSubviewCore";
-import type { HighlightRange } from "./SubviewHighlightController";
 
 export type SpectrumInitialData = {
   spectrum: { rows: Int8Array; count: number; timestamps: number[]; seqStart?: number };
@@ -85,7 +82,6 @@ export type SpectrumMountRefs = {
   annotation: HTMLCanvasElement;
   occupancy: HTMLCanvasElement;
   freqAxis: HTMLElement;
-  subviewHighlight: HTMLElement;
   timeLabels: HTMLDivElement;
   tooltip: HTMLDivElement;
   powerAxis: HTMLDivElement;
@@ -94,6 +90,28 @@ export type SpectrumMountRefs = {
   bandTooltip: HTMLDivElement;
   gridContainer: HTMLDivElement;
 };
+
+/**
+ * One frequency lane, as the React layer declares it. The canvas is supplied by
+ * the caller because React owns the DOM; everything else a lane needs comes
+ * from the core.
+ */
+export type LaneDef = {
+  /** `ProfileRange.id` of the watched range this lane shows. */
+  id: string;
+  /** Positioned, full-height box the lane creates its own canvas inside. */
+  host: HTMLElement;
+  freqStartMHz: number;
+  freqEndMHz: number;
+};
+
+type LaneEntry = { core: LaneCore; def: LaneDef };
+
+// A lane's texture crop is fixed at construction, so only a moved range (or a
+// new host) forces a rebuild. A renamed range must not, or editing a label
+// would drop and recreate a WebGL context per keystroke.
+const sameLaneDef = (a: LaneDef, b: LaneDef): boolean =>
+  a.host === b.host && a.freqStartMHz === b.freqStartMHz && a.freqEndMHz === b.freqEndMHz;
 
 export class SpectrumCore {
   private frameBuffer: FrameBuffer;
@@ -127,7 +145,6 @@ export class SpectrumCore {
   private tooltipController: TooltipController | null = null;
   private powerAxisController: PowerAxisController | null = null;
   private colormapLegendController: ColormapLegendController | null = null;
-  private subviewHighlightController: SubviewHighlightController | null = null;
   private bandController: BandController | null = null;
   private gridLineController: GridLineController | null = null;
   private waterfallInput: InputHandler | null = null;
@@ -138,7 +155,7 @@ export class SpectrumCore {
   private profileRangesCache: ProfileRange[] = [];
   private onProfileRangeChange: ((id: string, startMHz: number, endMHz: number) => void) | undefined;
   private lastProcessedCount = 0;
-  private subviews: SpectrumSubviewCore[] = [];
+  private lanes = new Map<string, LaneEntry>();
   private timeCursor = new TimeCursor();
   private waterfallResizeObserver: ResizeObserver | null = null;
   private lastHistoryState: HistoryState | null = null;
@@ -194,7 +211,7 @@ export class SpectrumCore {
       this.occupancyRenderer!.push(specRow);
       this.waterfallRenderer!.push(abs, specRow);
       this.annotationRenderer!.push(abs, annRow);
-      for (const sv of this.subviews) sv.push(abs, specRow, annRow);
+      for (const lane of this.lanes.values()) lane.core.push(abs, specRow);
     }
     this.lastProcessedCount = total;
   }
@@ -209,12 +226,16 @@ export class SpectrumCore {
     return Math.max(1, Math.floor(canvas.getBoundingClientRect().height));
   }
 
+  // One D, measured from the main waterfall, fanned out to everything that draws
+  // on the time axis -- lanes included. A lane deriving D from its own canvas
+  // would drift out of row alignment on a one-pixel layout difference.
   private applyDisplayRows(d: number) {
     this.timeCursor.setDisplayRows(d);
     this.waterfallRenderer?.setDisplayRows(d);
     this.annotationRenderer?.setDisplayRows(d);
     this.liveRenderer?.setDisplayRows(d);
     this.tooltipController?.setDisplayRows(d);
+    for (const lane of this.lanes.values()) lane.core.setDisplayRows(d);
   }
 
   private buildHistoryState(): HistoryState {
@@ -368,9 +389,6 @@ export class SpectrumCore {
     });
     colormapLegendController.mount(refs.colormapLegend);
 
-    const subviewHighlightController = new SubviewHighlightController();
-    subviewHighlightController.mount(refs.subviewHighlight);
-
     const bandController = new BandController(freqStartMHz, freqEndMHz, 3);
     bandController.mount(refs.bandContainer, refs.bandTooltip);
     bandController.onHover = (range) => {
@@ -396,7 +414,6 @@ export class SpectrumCore {
       });
       tooltipController.refresh();
       freqAxisController.update(viewport.start, viewport.end);
-      subviewHighlightController.update(viewport.start, viewport.end);
       bandController.update(viewport.start, viewport.end);
       gridLineController.update(viewport.start, viewport.end);
       waterfallRenderer.render();
@@ -404,7 +421,7 @@ export class SpectrumCore {
       occupancyRenderer.render();
       annotationRenderer.render();
       timeLabelsController.render();
-      for (const sv of this.subviews) sv.render();
+      for (const lane of this.lanes.values()) lane.core.render();
       this.publishHistoryState();
     };
     const scheduleRender = () => {
@@ -464,7 +481,6 @@ export class SpectrumCore {
     this.tooltipController = tooltipController;
     this.powerAxisController = powerAxisController;
     this.colormapLegendController = colormapLegendController;
-    this.subviewHighlightController = subviewHighlightController;
     this.bandController = bandController;
     this.gridLineController = gridLineController;
 
@@ -502,7 +518,6 @@ export class SpectrumCore {
     this.tooltipController?.destroy();
     this.powerAxisController?.destroy();
     this.colormapLegendController?.destroy();
-    this.subviewHighlightController?.destroy();
     this.bandController?.destroy();
     this.gridLineController?.destroy();
 
@@ -518,7 +533,6 @@ export class SpectrumCore {
     this.tooltipController = null;
     this.powerAxisController = null;
     this.colormapLegendController = null;
-    this.subviewHighlightController = null;
     this.bandController = null;
     this.gridLineController = null;
     this.waterfallInput = null;
@@ -526,8 +540,8 @@ export class SpectrumCore {
     this.liveInput = null;
     this.rafHandle = null;
     this.maxSnapshotData = null;
-    for (const sv of this.subviews) sv.destroy();
-    this.subviews = [];
+    for (const lane of this.lanes.values()) lane.core.destroy();
+    this.lanes.clear();
   }
 
   resetAll() {
@@ -553,40 +567,59 @@ export class SpectrumCore {
     this.occupancyRenderer?.reset();
   }
 
-  addSubview(refs: SubviewRefs, subFreqStart: number, subFreqEnd: number): SubviewHandle {
-    if (!this.maxHold || !this.avgLayer || !this.occupancyRenderer) throw new Error("mount() must be called before addSubview()");
-    const globalSpan = this.binCount * this.resolution;
-    const normalizedStart = (subFreqStart - this.freqStart) / globalSpan;
-    const normalizedEnd = (subFreqEnd - this.freqStart) / globalSpan;
-    const subview = new SpectrumSubviewCore(
-      this.frameBuffer.spectrum,
-      this.frameBuffer.annotations,
-      this.historyRows,
-      this.binCount,
-      subFreqStart / 1000,
-      subFreqEnd / 1000,
-      normalizedStart,
-      normalizedEnd,
-      { displayMin: this.displayMin, displayMax: this.displayMax, colormap: this.colormap, layerVisibility: this.layerVisibility },
-      [
-        { id: "max", data: this.maxHold.data, color: "rgba(255, 80, 80, 0.85)", mode: "line" },
-        { id: "avg", data: this.avgLayer.data, color: "rgba(250, 190, 40, 0.85)", mode: "line" },
-      ],
-      this.avgLayer,
-      this.maxHold,
-      this.occupancyRenderer.data,
-      this.timeCursor,
-      () => this.scheduleRender?.(),
-    );
-    subview.mount(refs);
-    this.subviews.push(subview);
-    return {
-      destroy: () => {
-        const idx = this.subviews.indexOf(subview);
-        if (idx !== -1) this.subviews.splice(idx, 1);
-        subview.destroy();
-      },
-    };
+  /**
+   * Reconcile the live lanes against `defs`, diffing by id: unchanged lanes are
+   * left running, new ones are constructed and mounted, dropped ones destroyed.
+   * Rebuilding wholesale would drop and recreate every WebGL context on any
+   * change at all -- see {@link sameLaneDef}.
+   */
+  setLanes(defs: LaneDef[]) {
+    const next = new Map<string, LaneEntry>();
+    for (const def of defs) {
+      const existing = this.lanes.get(def.id);
+      this.lanes.delete(def.id);
+      if (existing && sameLaneDef(existing.def, def)) {
+        next.set(def.id, existing);
+        continue;
+      }
+      existing?.core.destroy();
+      const [normStart, normEnd] = this.toNormalizedBounds(def.freqStartMHz, def.freqEndMHz);
+      const lane = new LaneCore(
+        this.frameBuffer.spectrum,
+        this.historyRows,
+        this.binCount,
+        normStart,
+        normEnd,
+        { displayMin: this.displayMin, displayMax: this.displayMax, colormap: this.colormap },
+        this.timeCursor,
+      );
+      lane.mount(def.host);
+      // The shared D, not a measurement of the lane's own canvas.
+      lane.setDisplayRows(this.timeCursor.displayRows);
+      next.set(def.id, { core: lane, def });
+    }
+    // Anything still in the old map was not in `defs`.
+    for (const entry of this.lanes.values()) entry.core.destroy();
+    this.lanes = next;
+    this.scheduleRender?.();
+  }
+
+  /**
+   * Bins a lane over this range would store and draw. Surfaced so the lane label
+   * can state its own resolution -- a five-bin range across 96px is blocky, and
+   * that is honest rather than a defect to interpolate away.
+   */
+  binsForRange(freqStartMHz: number, freqEndMHz: number): number {
+    const [normStart, normEnd] = this.toNormalizedBounds(freqStartMHz, freqEndMHz);
+    const binStart = Math.max(0, Math.min(this.binCount - 1, Math.floor(normStart * this.binCount)));
+    const binEnd = Math.max(binStart + 1, Math.min(this.binCount, Math.ceil(normEnd * this.binCount)));
+    return binEnd - binStart;
+  }
+
+  private toNormalizedBounds(startMHz: number, endMHz: number): [number, number] {
+    const freqStartMHz = this.freqStart / 1000;
+    const span = (this.binCount * this.resolution) / 1000;
+    return [(startMHz - freqStartMHz) / span, (endMHz - freqStartMHz) / span];
   }
 
   setDisplayRange(min: number, max: number) {
@@ -598,7 +631,10 @@ export class SpectrumCore {
     this.liveRenderer?.updateDisplayMax(max);
     this.powerAxisController?.update(min, max);
     this.colormapLegendController?.update(min, max, this.colormap);
-    for (const sv of this.subviews) sv.updateDisplayRange(min, max);
+    for (const lane of this.lanes.values()) {
+      lane.core.updateDisplayMin(min);
+      lane.core.updateDisplayMax(max);
+    }
   }
 
   setColormap(colormap: number) {
@@ -606,7 +642,7 @@ export class SpectrumCore {
     const lut = buildLUT(COLORMAPS[colormap]);
     this.waterfallRenderer?.updateColormap(lut);
     this.colormapLegendController?.update(this.displayMin, this.displayMax, colormap);
-    for (const sv of this.subviews) sv.updateColormap(lut);
+    for (const lane of this.lanes.values()) lane.core.updateColormap(lut);
   }
 
   setLayerVisibility(vis: Partial<LayerVisibility>) {
@@ -616,7 +652,6 @@ export class SpectrumCore {
       this.annotationRenderer?.setVisible(vis.annotations);
       this.annotationRenderer?.render();
     }
-    for (const sv of this.subviews) sv.updateLayerVisibility(vis);
   }
 
   setAvgTau(tau: number) {
@@ -627,10 +662,6 @@ export class SpectrumCore {
   setOccupancyThreshold(threshold: number) {
     this.occupancyThreshold = threshold;
     this.occupancyRenderer?.setThreshold(threshold);
-  }
-
-  setSubviewHighlights(ranges: HighlightRange[]) {
-    this.subviewHighlightController?.setRanges(ranges);
   }
 
   setBands(bands: Band[]) {
@@ -658,6 +689,7 @@ export class SpectrumCore {
       start: (r.freqStartMHz - freqStartMHz) / span,
       end: (r.freqEndMHz - freqStartMHz) / span,
       powerDbm: r.powerDbm,
+      watched: r.watched,
     }));
   }
 }

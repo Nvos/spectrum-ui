@@ -18,11 +18,28 @@ export const layout = style({
   padding: "2rem",
 });
 
+/**
+ * Total width the lane strip occupies, set from React on `layoutInner`.
+ *
+ * Lanes live in the waterfall row, but every row above it reserves the same
+ * width on its right so the live trace, occupancy strip and frequency axis keep
+ * lining up with the main waterfall as lanes narrow it. Lanes spend the
+ * waterfall's width; they never desynchronise the frequency axis.
+ */
+export const laneTotalWidthProperty = "--lane-total-width";
+
 export const layoutInner = style({
   height: "100%",
   display: "flex",
   flexDirection: "column",
-  vars: { [gutterWidthVar]: GUTTER },
+  vars: { [gutterWidthVar]: GUTTER, [laneTotalWidthProperty]: "0px" },
+});
+
+// Right-hand reservation matching the lane strip, for the rows that share the
+// waterfall's frequency axis. Zero-width when there are no lanes.
+export const laneSpacer = style({
+  width: `var(${laneTotalWidthProperty}, 0px)`,
+  flexShrink: 0,
 });
 
 // Live row
@@ -163,6 +180,79 @@ export const annotationCanvas = style({
   width: "100%",
   height: "100%",
   pointerEvents: "none",
+});
+
+// --- Frequency lanes ---
+
+// A lane is a narrow, full-height column sharing the main view's time axis.
+// `flexShrink: 0` against a `flex: 1` waterfall is what makes the waterfall,
+// not the page, pay for lane width. The total is capped in the resize handler
+// as well as here -- an uncapped secondary surface is exactly how the old
+// subview row crowded out the primary instrument.
+export const lane = style({
+  position: "relative",
+  flexShrink: 0,
+  minWidth: 0,
+  borderLeft: `1px solid rgba(255,255,255,0.12)`,
+});
+
+// Empty box the lane's canvas is created inside. React renders it and never
+// puts children in it; LaneCore owns everything below this node.
+export const laneCanvasHost = style({
+  position: "absolute",
+  inset: 0,
+});
+
+/**
+ * The lane label is an absolute overlay and MUST stay one.
+ *
+ * A header in normal flow -- even 1.25rem of it -- makes the lane canvas
+ * shorter than the main waterfall, so the same `D` maps to a different pixel
+ * height and rows silently stop lining up between columns, worst while scrolled
+ * back. This looks like a cosmetic choice and is not.
+ */
+export const laneLabel = style({
+  position: "absolute",
+  top: 0,
+  left: 0,
+  right: 0,
+  zIndex: 2,
+  padding: "0.2rem 0.3rem",
+  fontFamily: font.mono,
+  fontSize: "9px",
+  lineHeight: 1.5,
+  pointerEvents: "none",
+  background: "linear-gradient(to bottom, rgba(10,10,10,0.82), rgba(10,10,10,0))",
+});
+
+export const laneLabelLine = style({
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+});
+
+export const laneLabelName = style([laneLabelLine, { color: "rgba(255,255,255,0.9)" }]);
+export const laneLabelRange = style([laneLabelLine, { color: "rgba(255,255,255,0.55)" }]);
+
+// Bin count, so a lane's real resolution is legible. A range spanning a handful
+// of bins across 96px is blocky; that is honest, not a defect to interpolate.
+export const laneLabelBins = style([laneLabelLine, { color: "rgba(255,255,255,0.35)" }]);
+
+// On the lane's own left edge, so dragging it trades width directly with the
+// main waterfall (or the lane to its left) with nothing in between.
+export const laneResizeHandle = style({
+  position: "absolute",
+  top: 0,
+  bottom: 0,
+  left: 0,
+  width: "6px",
+  zIndex: 3,
+  cursor: "col-resize",
+  touchAction: "none",
+  selectors: {
+    "&:hover": { background: "rgba(255,255,255,0.12)" },
+    "&:active": { background: "rgba(255,255,255,0.2)" },
+  },
 });
 
 // Shared spacer used in live and occupancy rows

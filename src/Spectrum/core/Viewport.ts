@@ -20,13 +20,14 @@ export class Viewport {
     return this.canvas.width / this.minBinWidthPx / this.binCount;
   }
 
-  // When minSpan exceeds the valid range (subview too narrow relative to canvas),
-  // clamp it to allow interaction rather than locking the viewport solid.
+  // When minSpan exceeds the valid range (a cropped pane too narrow relative to
+  // its canvas), clamp it to allow interaction rather than locking the viewport
+  // solid. A lane never zooms, but it still constructs one of these.
   private effectiveMinSpan(): number {
     const minS = this.minSpan();
     const maxS = this.resetEnd - this.resetStart;
     if (minS <= maxS) return minS;
-    // Allow ~10x zoom-in from full subview view, floored at 1 bin width.
+    // Allow ~10x zoom-in from the full sub-range, floored at 1 bin width.
     return Math.max(1 / this.binCount, maxS / 10);
   }
 
