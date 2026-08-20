@@ -10,6 +10,7 @@ import { FrequencyAxisController } from "./FrequencyAxisController";
 import { GridLineController } from "./GridLineController";
 import { FrameBuffer } from "./FrameBuffer";
 import { InputHandler } from "./InputHandler";
+import { TimeGutterInput } from "./TimeGutterInput";
 import { LiveRenderer } from "./LiveRenderer";
 import { MaxHoldLayer } from "./MaxHoldLayer";
 import { OccupancyRenderer } from "./OccupancyRenderer";
@@ -122,6 +123,7 @@ export class SpectrumCore {
   private occupancyRenderer: OccupancyRenderer | null = null;
   private freqAxisController: FrequencyAxisController | null = null;
   private timeLabelsController: TimeLabelsController | null = null;
+  private timeGutterInput: TimeGutterInput | null = null;
   private tooltipController: TooltipController | null = null;
   private powerAxisController: PowerAxisController | null = null;
   private colormapLegendController: ColormapLegendController | null = null;
@@ -223,7 +225,13 @@ export class SpectrumCore {
     const retained = Math.max(1, totalWritten - oldestAbs);
     const distanceFromLive = Math.max(0, totalWritten - 1 - tc.anchorRow);
     const scrollSize = Math.min(1, Math.max(0.03, tc.displayRows / retained));
-    const scrollTop = Math.min(1 - scrollSize, Math.max(0, distanceFromLive / retained));
+    // Map onto the track the inflated thumb can actually travel. Dividing by
+    // `retained` instead would agree only while the thumb is unclamped, and the
+    // 0.03 floor engages once history exceeds ~33 screens — pinning the thumb
+    // at the bottom across the oldest few percent of a deep session.
+    const travel = Math.max(1, retained - tc.displayRows);
+    const scrollTop =
+      (1 - scrollSize) * Math.min(1, Math.max(0, distanceFromLive / travel));
     return {
       following: tc.follow,
       anchorRow: tc.anchorRow,
@@ -257,6 +265,14 @@ export class SpectrumCore {
       Math.abs(prev.scrollSize - next.scrollSize) > 0.002;
     if (!changed) return;
     this.lastHistoryState = next;
+    this.timeGutterInput?.setAriaPosition(
+      Math.round(next.scrollTop * 100),
+      next.following
+        ? "Live"
+        : next.loading
+          ? "Loading history"
+          : new Date(next.timestampMs).toLocaleTimeString(),
+    );
     handler(next);
   }
 
@@ -424,6 +440,14 @@ export class SpectrumCore {
     this.waterfallInput = new InputHandler(refs.waterfall, viewport, renderAll, timeCursor);
     this.liveInput = new InputHandler(refs.live, viewport, renderAll);
 
+    // The time gutter is the primary history control: a full-height column
+    // rather than a thin scrollbar, so there is nothing small to hit.
+    this.timeGutterInput = new TimeGutterInput(refs.timeLabels, timeCursor, {
+      onUpdate: renderAll,
+      onGestureStart: () => this.beginHistoryGesture(),
+      onGestureEnd: () => this.endHistoryGesture(),
+    });
+
     this.lastProcessedCount = buffer.totalWritten;
     this.frameBuffer.onPush = scheduleRender;
     this.frameBuffer.onHistoryLoad = scheduleRender;
@@ -471,6 +495,7 @@ export class SpectrumCore {
     this.waterfallRenderer?.destroy();
     this.liveRenderer?.destroy();
     this.waterfallInput?.destroy();
+    this.timeGutterInput?.destroy();
     this.liveInput?.destroy();
     this.freqAxisController?.destroy();
     this.timeLabelsController?.destroy();
@@ -497,6 +522,7 @@ export class SpectrumCore {
     this.bandController = null;
     this.gridLineController = null;
     this.waterfallInput = null;
+    this.timeGutterInput = null;
     this.liveInput = null;
     this.rafHandle = null;
     this.maxSnapshotData = null;

@@ -1,8 +1,6 @@
 import type { TimeCursor } from "./TimeCursor";
 import type { Viewport } from "./Viewport";
-
-/** Fraction of a screen moved per wheel notch when time-scrolling. */
-const WHEEL_SCROLL_FRACTION = 0.15;
+import { applyHistoryKey, wheelScrollStep } from "./historyInput";
 
 export class InputHandler {
   private canvas: HTMLCanvasElement;
@@ -62,10 +60,7 @@ export class InputHandler {
     // alt (claimed by some Linux window managers). preventDefault above already
     // suppresses shift+wheel's default horizontal scroll.
     if (this.timeCursor && e.shiftKey) {
-      const step = Math.max(
-        1,
-        Math.round(this.timeCursor.displayRows * WHEEL_SCROLL_FRACTION),
-      );
+      const step = wheelScrollStep(this.timeCursor);
       // Wheel down reveals older rows, which live below the anchor.
       this.timeCursor.scrollByRows(e.deltaY > 0 ? -step : step);
       // A wheel gesture does not focus anything, so Home/PageUp would be dead
@@ -90,31 +85,7 @@ export class InputHandler {
   };
 
   private onKeyDown = (e: KeyboardEvent) => {
-    const tc = this.timeCursor;
-    if (!tc || e.ctrlKey || e.metaKey || e.altKey) return;
-    const page = Math.max(1, tc.displayRows - 1);
-    switch (e.key) {
-      case "ArrowUp":
-        tc.scrollByRows(1);
-        break;
-      case "ArrowDown":
-        tc.scrollByRows(-1);
-        break;
-      case "PageUp":
-        tc.scrollByRows(-page);
-        break;
-      case "PageDown":
-        tc.scrollByRows(page);
-        break;
-      case "Home":
-        tc.scrollToLive();
-        break;
-      case "End":
-        tc.scrollToOldest();
-        break;
-      default:
-        return;
-    }
+    if (!this.timeCursor || !applyHistoryKey(this.timeCursor, e)) return;
     e.preventDefault();
     this.onUpdate();
   };

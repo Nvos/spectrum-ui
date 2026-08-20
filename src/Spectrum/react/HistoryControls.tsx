@@ -1,5 +1,4 @@
 import { useAtomValue } from "jotai";
-import { useRef } from "react";
 import type { SpectrumCore } from "../core/SpectrumCore";
 import * as styles from "./SpectrumRows.css";
 import { historyPositionAtom } from "./store";
@@ -14,86 +13,22 @@ const formatClock = (ms: number): string => {
 type Props = { core: SpectrumCore; live?: boolean };
 
 /**
- * Follow/pause readout and history scrollbar.
+ * Follow/pause readout and passive history position rail.
  *
- * Not decoration: with time scroll behind shift+wheel, the scrollbar is the
- * only discoverable entry point to history — a user who never guesses the
- * modifier reaches it through this and nothing else.
+ * Neither takes pointer input. History is scrolled on the time gutter
+ * (`TimeGutterInput`), which is the full-height left column and therefore has
+ * no small target to acquire — the scrollbar this replaced could render a
+ * 4px thumb on a deep session, which is unusable on a touchpad in the field.
+ *
+ * The rail stays because it answers the one question the gutter cannot: where
+ * this window sits in the whole retained session, at a glance.
  */
 export const HistoryControls = ({ core, live = true }: Props) => {
   const position = useAtomValue(historyPositionAtom);
-  const trackRef = useRef<HTMLDivElement>(null);
-  const dragging = useRef(false);
 
   if (!position || position.totalWritten === 0) return null;
 
-  const { following, atOldest, timestampMs, loading, scrollTop, scrollSize, totalWritten, oldestAbs } =
-    position;
-  const retained = Math.max(1, totalWritten - oldestAbs);
-
-  // Track runs live (top) → oldest retained (bottom), matching the waterfall.
-  const seekToClientY = (clientY: number) => {
-    const track = trackRef.current;
-    if (!track) return;
-    const rect = track.getBoundingClientRect();
-    if (rect.height <= 0) return;
-    const thumbHeight = scrollSize * rect.height;
-    const travel = Math.max(1, rect.height - thumbHeight);
-    const frac = (clientY - rect.top - thumbHeight / 2) / travel;
-    const maxDistance = Math.max(0, retained - position.displayRows);
-    const distanceFromLive = Math.round(Math.min(1, Math.max(0, frac)) * maxDistance);
-    if (distanceFromLive <= 0) core.scrollHistoryToLive();
-    else core.scrollHistoryTo(totalWritten - 1 - distanceFromLive);
-  };
-
-  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.currentTarget.setPointerCapture(e.pointerId);
-    dragging.current = true;
-    core.beginHistoryGesture();
-    seekToClientY(e.clientY);
-  };
-
-  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!dragging.current) return;
-    seekToClientY(e.clientY);
-  };
-
-  const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
-    dragging.current = false;
-    core.endHistoryGesture();
-    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    }
-  };
-
-  // Keyboard equivalents so the feature is reachable without a wheel or drag.
-  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    const page = Math.max(1, position.displayRows - 1);
-    switch (e.key) {
-      case "ArrowDown":
-        core.scrollHistoryByRows(-1);
-        break;
-      case "ArrowUp":
-        core.scrollHistoryByRows(1);
-        break;
-      case "PageDown":
-        core.scrollHistoryByRows(-page);
-        break;
-      case "PageUp":
-        core.scrollHistoryByRows(page);
-        break;
-      case "Home":
-        core.scrollHistoryToLive();
-        break;
-      case "End":
-        core.scrollHistoryToOldest();
-        break;
-      default:
-        return;
-    }
-    e.preventDefault();
-  };
+  const { following, atOldest, timestampMs, loading, scrollTop, scrollSize } = position;
 
   const label = following
     ? live
@@ -125,30 +60,7 @@ export const HistoryControls = ({ core, live = true }: Props) => {
       >
         {label}
       </button>
-      <div
-        ref={trackRef}
-        className={styles.historyScrollbar}
-        role="slider"
-        tabIndex={0}
-        aria-label="History position"
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={Math.round(scrollTop * 100)}
-        aria-valuetext={
-          following
-            ? live
-              ? "Live"
-              : "Latest recorded data"
-            : loading
-              ? "Loading history"
-              : formatClock(timestampMs)
-        }
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
-        onKeyDown={onKeyDown}
-      >
+      <div className={styles.historyScrollbar} aria-hidden="true">
         <div
           className={`${styles.historyScrollbarThumb} ${
             following ? "" : styles.historyScrollbarThumbPaused

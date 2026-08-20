@@ -2,9 +2,12 @@ import { style } from "@vanilla-extract/css";
 import { gutterWidthVar } from "../core/styles.css";
 import { font } from "../tokens";
 
-// Wide enough for an absolute HH:MM:SS time label in the waterfall gutter.
-// Shared by every left gutter in the layout so the panes stay aligned.
-const GUTTER = "3.5rem";
+// Wide enough for an absolute HH:MM:SS time label in the waterfall gutter,
+// plus slack that makes the waterfall gutter a comfortable drag target — it is
+// the primary history control, and it is aimed at a touchpad in the field
+// rather than a mouse at a desk. Shared by every left gutter in the layout so
+// the panes stay aligned.
+const GUTTER = "5rem";
 
 export const layout = style({
   display: "flex",
@@ -122,12 +125,21 @@ export const waterfallRow = style({
   minHeight: 0,
 });
 
+// The full-height history scroll surface. Any pixel of the column scrolls
+// time — by wheel, drag, or keyboard — so there is no thumb to acquire.
 export const timeLabels = style({
   position: "relative",
   width: GUTTER,
   flexShrink: 0,
   overflow: "hidden",
-  pointerEvents: "none",
+  cursor: "grab",
+  touchAction: "none",
+  userSelect: "none",
+  selectors: {
+    "&:active": { cursor: "grabbing" },
+    "&:hover": { backgroundColor: "rgba(255,255,255,0.03)" },
+    "&:focus-visible": { outline: `1px solid rgba(255,255,255,0.5)`, outlineOffset: "-1px" },
+  },
 });
 
 export const waterfallCanvasContainer = style({
@@ -160,25 +172,23 @@ export const spacerW10 = style({
 
 // --- History scroll controls (overlaid on the waterfall) ---
 
+// Passive position rail. It takes no input — the gutter does — but it is the
+// one thing the gutter cannot express: where this window sits in the whole
+// retained session, readable at a glance instead of by comparing clock times.
 export const historyScrollbar = style({
   position: "absolute",
   top: 0,
   bottom: 0,
   right: 0,
-  width: "0.625rem",
+  width: "0.25rem",
   backgroundColor: "rgba(0,0,0,0.35)",
-  borderLeft: `1px solid rgba(255,255,255,0.08)`,
-  cursor: "pointer",
-  touchAction: "none",
-  selectors: {
-    "&:focus-visible": { outline: `1px solid rgba(255,255,255,0.5)`, outlineOffset: "-1px" },
-  },
+  pointerEvents: "none",
 });
 
 export const historyScrollbarThumb = style({
   position: "absolute",
-  left: "1px",
-  right: "1px",
+  left: 0,
+  right: 0,
   minHeight: "0.5rem",
   borderRadius: "0.125rem",
   backgroundColor: "rgba(255,255,255,0.32)",
@@ -192,7 +202,7 @@ export const historyScrollbarThumbPaused = style({
 export const historyIndicator = style({
   position: "absolute",
   top: "0.375rem",
-  right: "1.125rem",
+  right: "0.75rem",
   zIndex: 2,
   display: "flex",
   alignItems: "center",
@@ -221,7 +231,7 @@ export const historyIndicatorPaused = style({
 export const historyExpiringEdge = style({
   position: "absolute",
   left: 0,
-  right: "0.625rem",
+  right: "0.25rem",
   bottom: 0,
   height: "2px",
   backgroundColor: "rgba(250, 190, 40, 0.65)",
