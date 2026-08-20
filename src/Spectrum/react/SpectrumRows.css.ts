@@ -2,12 +2,13 @@ import { style } from "@vanilla-extract/css";
 import { gutterWidthVar } from "../core/styles.css";
 import { font } from "../tokens";
 
-// Wide enough for an absolute HH:MM:SS time label in the waterfall gutter,
-// plus slack that makes the waterfall gutter a comfortable drag target — it is
-// the primary history control, and it is aimed at a touchpad in the field
-// rather than a mouse at a desk. Shared by every left gutter in the layout so
-// the panes stay aligned.
-const GUTTER = "5rem";
+// `HH:MM:SS` at 10px mono is ~48px, plus a 6px tick and 2px of padding — 56px
+// of content with nothing to spare. A little over that keeps the label off the
+// edge and keeps the waterfall gutter a comfortable drag target, since it is
+// the primary history control and is aimed at a touchpad in the field rather
+// than a mouse at a desk. Shared by every left gutter so the panes stay
+// aligned, so width taken here is width taken from every pane.
+const GUTTER = "4rem";
 
 export const layout = style({
   display: "flex",

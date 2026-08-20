@@ -1,6 +1,7 @@
 import type { TimeCursor } from "./TimeCursor";
 import type { Viewport } from "./Viewport";
 import { applyHistoryKey, wheelScrollStep } from "./historyInput";
+import { applyViewportKey } from "./viewportInput";
 
 export class InputHandler {
   private canvas: HTMLCanvasElement;
@@ -31,12 +32,11 @@ export class InputHandler {
     window.addEventListener("mouseup", this.onMouseUp);
     canvas.addEventListener("dblclick", this.onDblClick);
 
-    if (this.timeCursor) {
-      // Keyboard reachability for the scroll gesture. Canvases are not
-      // focusable by default.
-      if (!canvas.hasAttribute("tabindex")) canvas.tabIndex = 0;
-      canvas.addEventListener("keydown", this.onKeyDown);
-    }
+    // Keyboard reachability. Canvases are not focusable by default. Bound
+    // unconditionally: frequency traversal applies to every pane, and only the
+    // time half of the map depends on a `timeCursor`.
+    if (!canvas.hasAttribute("tabindex")) canvas.tabIndex = 0;
+    canvas.addEventListener("keydown", this.onKeyDown);
   }
 
   private toNorm(clientX: number): number {
@@ -85,7 +85,13 @@ export class InputHandler {
   };
 
   private onKeyDown = (e: KeyboardEvent) => {
-    if (!this.timeCursor || !applyHistoryKey(this.timeCursor, e)) return;
+    // Time first, then frequency. The two maps are disjoint — vertical keys
+    // scroll time, horizontal keys and the zoom keys move frequency — so the
+    // order is documentation rather than precedence.
+    const handled =
+      (this.timeCursor !== null && applyHistoryKey(this.timeCursor, e)) ||
+      applyViewportKey(this.viewport, e);
+    if (!handled) return;
     e.preventDefault();
     this.onUpdate();
   };

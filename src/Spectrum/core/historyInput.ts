@@ -23,6 +23,13 @@ export const wheelScrollStep = (tc: TimeCursor): number =>
   Math.max(1, Math.round(tc.displayRows * WHEEL_SCROLL_FRACTION));
 
 /**
+ * Rows per arrow press. `shift` is the faster-movement modifier here for the
+ * same reason it is on frequency pan — one modifier, both axes.
+ */
+const ARROW_ROWS = 1;
+const ARROW_ROWS_FAST = 10;
+
+/**
  * The single history key map, shared by every surface that accepts one.
  *
  * Newest rows are at the top of the waterfall, so every "up" key moves toward
@@ -37,12 +44,13 @@ export const wheelScrollStep = (tc: TimeCursor): number =>
 export const applyHistoryKey = (tc: TimeCursor, e: KeyboardEvent): boolean => {
   if (e.ctrlKey || e.metaKey || e.altKey) return false;
   const page = Math.max(1, tc.displayRows - 1);
+  const rows = e.shiftKey ? ARROW_ROWS_FAST : ARROW_ROWS;
   switch (e.key) {
     case "ArrowUp":
-      tc.scrollByRows(1);
+      tc.scrollByRows(rows);
       return true;
     case "ArrowDown":
-      tc.scrollByRows(-1);
+      tc.scrollByRows(-rows);
       return true;
     case "PageUp":
       tc.scrollByRows(page);
